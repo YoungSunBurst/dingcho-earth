@@ -259,13 +259,20 @@ function updateCameraFollow() {
     const charPos = character.group.position.clone();
     const charUp = charPos.clone().normalize();
 
-    // 캐릭터 뒤쪽 위에서 바라보기
-    const cameraOffset = charUp.clone().multiplyScalar(followHeight);
-    const backDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
-    cameraOffset.add(backDirection.multiplyScalar(followDistance));
+    // 캐릭터가 바라보는 방향 (앞쪽)
+    const forwardDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(character.group.quaternion);
+    // 캐릭터 뒤쪽 방향
+    const backDirection = forwardDirection.clone().negate();
+
+    // 카메라 위치: 캐릭터 뒤쪽 + 위쪽
+    const cameraOffset = backDirection.clone().multiplyScalar(followDistance);
+    cameraOffset.add(charUp.clone().multiplyScalar(followHeight));
 
     camera.position.copy(charPos).add(cameraOffset);
-    camera.lookAt(charPos);
+
+    // 캐릭터 앞쪽을 바라보기 (캐릭터가 바라보는 방향)
+    const lookTarget = charPos.clone().add(forwardDirection.multiplyScalar(0.5));
+    camera.lookAt(lookTarget);
     camera.up.copy(charUp);
 }
 

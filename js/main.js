@@ -251,48 +251,88 @@ function handleInput(deltaTime) {
     }
 }
 
-// === CAMERA FOLLOW MODE ===
-let followMode = false;
+// === CAMERA MODES ===
+let cameraMode = 'free'; // 'free', 'bird', 'front'
 const followDistance = 0.3;
 const followHeight = 0.15;
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'f' || e.key === 'F') {
-        followMode = !followMode;
-        controls.enabled = !followMode;
+        // F: 버드뷰 (위에서 내려다보기)
+        if (cameraMode === 'bird') {
+            cameraMode = 'free';
+            controls.enabled = true;
+        } else {
+            cameraMode = 'bird';
+            controls.enabled = false;
+        }
+        updateInfoText();
+    }
+    if (e.key === 'v' || e.key === 'V') {
+        // V: 정면뷰 (캐릭터 뒤에서 앞쪽 바라보기)
+        if (cameraMode === 'front') {
+            cameraMode = 'free';
+            controls.enabled = true;
+        } else {
+            cameraMode = 'front';
+            controls.enabled = false;
+        }
         updateInfoText();
     }
 });
 
 function updateInfoText() {
     const info = document.getElementById('info');
-    if (followMode) {
+    if (cameraMode === 'bird') {
         info.innerHTML = `
-            <strong>Follow Mode ON</strong> (Press F to toggle)<br>
+            <strong>Bird View</strong> (F: toggle)<br>
             W: Forward | A/D: Turn | S: Turn around<br>
-            Shift: Run | Space: Jump
+            Shift: Run | Space: Jump | V: Front view
+        `;
+    } else if (cameraMode === 'front') {
+        info.innerHTML = `
+            <strong>Front View</strong> (V: toggle)<br>
+            W: Forward | A/D: Turn | S: Turn around<br>
+            Shift: Run | Space: Jump | F: Bird view
         `;
     } else {
         info.innerHTML = `
             Drag to rotate | Scroll to zoom<br>
             W: Forward | A/D: Turn | S: Turn around<br>
-            Shift: Run | Space: Jump | F: Follow
+            Shift: Run | Space: Jump<br>
+            F: Bird view | V: Front view
         `;
     }
 }
 
 function updateCameraFollow() {
-    if (!followMode) return;
+    if (cameraMode === 'free') return;
 
     const charPos = character.group.position.clone();
     const charUp = charPos.clone().normalize();
 
-    // 초기 카메라와 동일하게 캐릭터 위쪽에서 내려다보기
-    const cameraOffset = charUp.clone().multiplyScalar(1.5);
+    if (cameraMode === 'bird') {
+        // 버드뷰: 캐릭터 위에서 내려다보기
+        const cameraOffset = charUp.clone().multiplyScalar(1.5);
+        camera.position.copy(charPos).add(cameraOffset);
+        camera.lookAt(charPos);
+        camera.up.copy(new THREE.Vector3(0, 1, 0));
+    } else if (cameraMode === 'front') {
+        // 정면뷰: 캐릭터 뒤에서 앞쪽을 바라보기
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
 
-    camera.position.copy(charPos).add(cameraOffset);
-    camera.lookAt(charPos);
-    camera.up.copy(new THREE.Vector3(0, 1, 0));
+        // 캐릭터 뒤쪽으로 카메라 이동 (캐릭터가 바라보는 방향의 반대)
+        const cameraBackOffset = forward.clone().multiplyScalar(-0.4);
+        // 약간 위쪽으로 올리기
+        const cameraUpOffset = charUp.clone().multiplyScalar(0.15);
+
+        camera.position.copy(charPos).add(cameraBackOffset).add(cameraUpOffset);
+
+        // 캐릭터가 바라보는 방향 앞쪽을 바라보기
+        const lookAtPos = charPos.clone().add(forward.clone().multiplyScalar(1));
+        camera.lookAt(lookAtPos);
+        camera.up.copy(charUp);
+    }
 }
 
 // Clock for deltaTime

@@ -276,27 +276,12 @@ function updateCameraFollow() {
     const charPos = character.group.position.clone();
     const charUp = charPos.clone().normalize();
 
-    // 캐릭터가 바라보는 방향 (앞쪽 = 로컬 +Z)
-    const forwardLocal = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
-
-    // 지구 표면 접선 방향으로 투영 (지구 중심 향하는 성분 제거)
-    const forwardTangent = forwardLocal.clone();
-    forwardTangent.sub(charUp.clone().multiplyScalar(forwardLocal.dot(charUp)));
-    forwardTangent.normalize();
-
-    // 캐릭터 뒤쪽 접선 방향
-    const backTangent = forwardTangent.clone().negate();
-
-    // 카메라 위치: 캐릭터 뒤쪽 + 위쪽 (뒷통수가 보이는 위치)
-    const cameraOffset = backTangent.clone().multiplyScalar(followDistance);
-    cameraOffset.add(charUp.clone().multiplyScalar(followHeight));
+    // 캐릭터 위쪽에서 내려다보기
+    const cameraOffset = charUp.clone().multiplyScalar(followDistance + followHeight);
 
     camera.position.copy(charPos).add(cameraOffset);
-
-    // 캐릭터 앞쪽 지구 표면 방향을 바라보기
-    const lookTarget = charPos.clone().add(forwardTangent.multiplyScalar(0.3));
-    camera.lookAt(lookTarget);
-    camera.up.copy(charUp);
+    camera.lookAt(charPos);
+    camera.up.copy(new THREE.Vector3(0, 0, 1));
 }
 
 // Clock for deltaTime

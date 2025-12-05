@@ -158,8 +158,24 @@ scene.add(hemiLight);
 
 // === CHARACTER ===
 const character = new Character();
-character.setPosition(35, 139); // 도쿄 근처에서 시작
+character.setPosition(37, 127); // 한국(서울) 근처에서 시작
 scene.add(character.group);
+
+// 초기 카메라 위치를 캐릭터가 보이는 곳으로 설정
+function initCameraPosition() {
+    const charPos = character.group.position.clone();
+    const charUp = charPos.clone().normalize();
+
+    // 캐릭터 뒤쪽에서 바라보도록
+    const backDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(character.group.quaternion);
+    const cameraOffset = backDirection.clone().multiplyScalar(0.5);
+    cameraOffset.add(charUp.clone().multiplyScalar(0.3));
+
+    camera.position.copy(charPos).add(cameraOffset);
+    camera.lookAt(charPos);
+    camera.up.copy(charUp);
+}
+initCameraPosition();
 
 // 캐릭터 로드 완료
 updateLoading();
@@ -259,18 +275,19 @@ function updateCameraFollow() {
     const charPos = character.group.position.clone();
     const charUp = charPos.clone().normalize();
 
+    // 캐릭터가 바라보는 방향 (앞쪽 = 로컬 +Z)
+    const forwardDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
     // 캐릭터 뒤쪽 방향 (로컬 -Z)
     const backDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(character.group.quaternion);
 
-    // 카메라 위치: 캐릭터 뒤쪽 + 위쪽
+    // 카메라 위치: 캐릭터 뒤쪽 + 위쪽 (뒷통수가 보이는 위치)
     const cameraOffset = backDirection.clone().multiplyScalar(followDistance);
     cameraOffset.add(charUp.clone().multiplyScalar(followHeight));
 
     camera.position.copy(charPos).add(cameraOffset);
 
-    // 캐릭터 머리 높이를 바라보기 (뒷통수가 보이도록)
-    const headHeight = charUp.clone().multiplyScalar(0.06);
-    const lookTarget = charPos.clone().add(headHeight);
+    // 캐릭터가 이동할 방향(앞쪽)을 바라보기
+    const lookTarget = charPos.clone().add(forwardDirection.multiplyScalar(0.5));
     camera.lookAt(lookTarget);
     camera.up.copy(charUp);
 }

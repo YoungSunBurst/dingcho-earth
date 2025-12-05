@@ -191,7 +191,8 @@ const keys = {
     ArrowDown: false,
     ArrowLeft: false,
     ArrowRight: false,
-    shift: false
+    shift: false,
+    space: false
 };
 
 document.addEventListener('keydown', (e) => {
@@ -199,6 +200,10 @@ document.addEventListener('keydown', (e) => {
     if (key in keys) keys[key] = true;
     if (e.key in keys) keys[e.key] = true;
     if (e.key === 'Shift') keys.shift = true;
+    if (e.key === ' ') {
+        keys.space = true;
+        e.preventDefault(); // 페이지 스크롤 방지
+    }
 });
 
 document.addEventListener('keyup', (e) => {
@@ -206,6 +211,7 @@ document.addEventListener('keyup', (e) => {
     if (key in keys) keys[key] = false;
     if (e.key in keys) keys[e.key] = false;
     if (e.key === 'Shift') keys.shift = false;
+    if (e.key === ' ') keys.space = false;
 });
 
 function handleInput(deltaTime) {
@@ -213,6 +219,11 @@ function handleInput(deltaTime) {
 
     // Shift: 달리기 모드
     character.setRunning(keys.shift);
+
+    // Space: 점프
+    if (keys.space) {
+        character.jump();
+    }
 
     // W / ↑: 앞으로 이동
     if (keys.w || keys.ArrowUp) {
@@ -259,13 +270,13 @@ function updateInfoText() {
         info.innerHTML = `
             <strong>Follow Mode ON</strong> (Press F to toggle)<br>
             W: Forward | A/D: Turn | S: Turn around<br>
-            Shift: Run
+            Shift: Run | Space: Jump
         `;
     } else {
         info.innerHTML = `
             Drag to rotate | Scroll to zoom<br>
             W: Forward | A/D: Turn | S: Turn around<br>
-            Shift: Run | F: Follow camera
+            Shift: Run | Space: Jump | F: Follow
         `;
     }
 }

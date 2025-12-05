@@ -19,6 +19,13 @@ export class Character {
 
         this.earthRadius = 1;
         this.characterHeight = 0.08;
+        this.baseHeight = 0.08;
+
+        // 점프 관련
+        this.isJumping = false;
+        this.jumpVelocity = 0;
+        this.jumpForce = 0.8;
+        this.gravity = 2.5;
 
         this.createCharacter();
         this.updatePositionOnEarth();
@@ -321,6 +328,33 @@ export class Character {
         this.isRunning = running;
     }
 
+    // Space: 점프
+    jump() {
+        if (!this.isJumping) {
+            this.isJumping = true;
+            this.jumpVelocity = this.jumpForce;
+        }
+    }
+
+    // 점프 업데이트
+    updateJump(deltaTime) {
+        if (this.isJumping) {
+            // 속도에 따른 높이 변화
+            this.characterHeight += this.jumpVelocity * deltaTime;
+            // 중력 적용
+            this.jumpVelocity -= this.gravity * deltaTime;
+
+            // 땅에 착지
+            if (this.characterHeight <= this.baseHeight) {
+                this.characterHeight = this.baseHeight;
+                this.isJumping = false;
+                this.jumpVelocity = 0;
+            }
+
+            this.updatePositionOnEarth();
+        }
+    }
+
     stopWalking() {
         this.isWalking = false;
     }
@@ -334,5 +368,6 @@ export class Character {
 
     update(deltaTime) {
         this.animateWalk(deltaTime);
+        this.updateJump(deltaTime);
     }
 }

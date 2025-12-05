@@ -5,11 +5,18 @@ export class Character {
         this.group = new THREE.Group();
         this.animationTime = 0;
         this.isWalking = false;
-        this.walkSpeed = 0.015;
+        this.isRunning = false;
+
+        // 속도 설정
+        this.walkSpeed = 0.3;
+        this.runSpeed = 0.8;
+        this.turnSpeed = 2.0;
 
         // 구면 좌표 (위도, 경도)
         this.latitude = 0;
         this.longitude = 0;
+        this.facingAngle = 0; // 캐릭터가 바라보는 방향 (라디안)
+
         this.earthRadius = 1;
         this.characterHeight = 0.08;
 
@@ -177,18 +184,21 @@ export class Character {
         });
     }
 
-    // 걷기 애니메이션
+    // 걷기/달리기 애니메이션
     animateWalk(deltaTime) {
+        const animSpeed = this.isRunning ? 18 : 10;
+        const animIntensity = this.isRunning ? 1.3 : 1.0;
+
         if (!this.isWalking) {
             // 대기 상태 - 부드럽게 원래 위치로
             this.animationTime *= 0.9;
         } else {
-            this.animationTime += deltaTime * 10;
+            this.animationTime += deltaTime * animSpeed;
         }
 
         const t = this.animationTime;
-        const walkCycle = Math.sin(t);
-        const walkCycle2 = Math.cos(t);
+        const walkCycle = Math.sin(t) * animIntensity;
+        const walkCycle2 = Math.cos(t) * animIntensity;
 
         // 다리 애니메이션
         this.leftLeg.rotation.x = walkCycle * 0.5;
@@ -239,39 +249,54 @@ export class Character {
         quaternion.setFromUnitVectors(defaultUp, up);
         this.group.quaternion.copy(quaternion);
 
-        // 이동 방향으로 캐릭터 회전
-        this.group.rotateY(-lon + Math.PI);
+        // 캐릭터가 바라보는 방향으로 회전
+        this.group.rotateY(this.facingAngle);
     }
 
-    // 이동 함수들
-    moveForward() {
-        this.latitude += this.walkSpeed * Math.cos(THREE.MathUtils.degToRad(this.longitude));
-        this.longitude += this.walkSpeed * Math.sin(THREE.MathUtils.degToRad(this.longitude)) / Math.cos(THREE.MathUtils.degToRad(this.latitude));
-        this.latitude = Math.max(-89, Math.min(89, this.latitude));
+    // W: 앞으로 이동 (바라보는 방향)
+    moveForward(deltaTime) {
+        const speed = this.isRunning ? this.runSpeed : this.walkSpeed;
+        const moveAmount = speed * deltaTime;
+
+        // 바라보는 방향으로 이동
+        const moveAngle = this.facingAngle;
+
+        this.latitude += moveAmount * Math.cos(moveAngle);
+        this.longitude += moveAmount * Math.sin(moveAngle) / Math.max(0.1, Math.cos(THREE.MathUtils.degToRad(this.latitude)));
+
+        this.latitude = Math.max(-85, Math.min(85, this.latitude));
         this.isWalking = true;
         this.updatePositionOnEarth();
     }
 
-    moveBackward() {
-        this.latitude -= this.walkSpeed * Math.cos(THREE.MathUtils.degToRad(this.longitude));
-        this.longitude -= this.walkSpeed * Math.sin(THREE.MathUtils.degToRad(this.longitude)) / Math.cos(THREE.MathUtils.degToRad(this.latitude));
-        this.latitude = Math.max(-89, Math.min(89, this.latitude));
-        this.isWalking = true;
+    // S: 뒤돌아보기 (180도 회전)
+    turnAround(deltaTime) {
+        const turnAmount = this.turnSpeed * deltaTime * 3;
+        this.facingAngle += turnAmount;
+
+        // 180도(π) 회전 후 정규화
+        if (this.facingAngle > Math.PI * 2) {
+            this.facingAngle -= Math.PI * 2;
+        }
+
         this.updatePositionOnEarth();
     }
 
-    moveLeft() {
-        this.longitude -= this.walkSpeed * 2;
-        this.isWalking = true;
-        this.group.rotateY(0.05);
+    // A: 왼쪽으로 방향 전환
+    turnLeft(deltaTime) {
+        this.facingAngle -= this.turnSpeed * deltaTime;
         this.updatePositionOnEarth();
     }
 
-    moveRight() {
-        this.longitude += this.walkSpeed * 2;
-        this.isWalking = true;
-        this.group.rotateY(-0.05);
+    // D: 오른쪽으로 방향 전환
+    turnRight(deltaTime) {
+        this.facingAngle += this.turnSpeed * deltaTime;
         this.updatePositionOnEarth();
+    }
+
+    // Shift: 달리기 모드
+    setRunning(running) {
+        this.isRunning = running;
     }
 
     stopWalking() {

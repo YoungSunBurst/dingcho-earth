@@ -173,38 +173,48 @@ const keys = {
     ArrowUp: false,
     ArrowDown: false,
     ArrowLeft: false,
-    ArrowRight: false
+    ArrowRight: false,
+    shift: false
 };
 
 document.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     if (key in keys) keys[key] = true;
     if (e.key in keys) keys[e.key] = true;
+    if (e.key === 'Shift') keys.shift = true;
 });
 
 document.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
     if (key in keys) keys[key] = false;
     if (e.key in keys) keys[e.key] = false;
+    if (e.key === 'Shift') keys.shift = false;
 });
 
-function handleInput() {
+function handleInput(deltaTime) {
     let isMoving = false;
 
+    // Shift: 달리기 모드
+    character.setRunning(keys.shift);
+
+    // W / ↑: 앞으로 이동
     if (keys.w || keys.ArrowUp) {
-        character.moveForward();
+        character.moveForward(deltaTime);
         isMoving = true;
     }
+    // S / ↓: 뒤돌아보기
     if (keys.s || keys.ArrowDown) {
-        character.moveBackward();
+        character.turnAround(deltaTime);
         isMoving = true;
     }
+    // A / ←: 왼쪽으로 회전
     if (keys.a || keys.ArrowLeft) {
-        character.moveLeft();
+        character.turnLeft(deltaTime);
         isMoving = true;
     }
+    // D / →: 오른쪽으로 회전
     if (keys.d || keys.ArrowRight) {
-        character.moveRight();
+        character.turnRight(deltaTime);
         isMoving = true;
     }
 
@@ -231,13 +241,14 @@ function updateInfoText() {
     if (followMode) {
         info.innerHTML = `
             <strong>Follow Mode ON</strong> (Press F to toggle)<br>
-            WASD / Arrow Keys: Move character
+            W: Forward | A/D: Turn | S: Turn around<br>
+            Shift: Run
         `;
     } else {
         info.innerHTML = `
             Drag to rotate | Scroll to zoom<br>
-            WASD / Arrow Keys: Move character<br>
-            F: Toggle follow camera
+            W: Forward | A/D: Turn | S: Turn around<br>
+            Shift: Run | F: Follow camera
         `;
     }
 }
@@ -268,7 +279,7 @@ function animate() {
     const deltaTime = clock.getDelta();
 
     // Handle keyboard input
-    handleInput();
+    handleInput(deltaTime);
 
     // Update character animation
     character.update(deltaTime);

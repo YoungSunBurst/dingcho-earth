@@ -258,15 +258,21 @@ export class Character {
         const speed = this.isRunning ? this.runSpeed : this.walkSpeed;
         const moveAmount = speed * deltaTime;
 
-        // 바라보는 방향으로 이동 (facingAngle 기준)
-        // facingAngle이 0일 때 경도 증가 방향(동쪽)으로 이동
-        const latChange = moveAmount * Math.sin(this.facingAngle);
-        const lonChange = moveAmount * Math.cos(this.facingAngle) / Math.max(0.1, Math.cos(THREE.MathUtils.degToRad(this.latitude)));
+        // 캐릭터의 앞쪽 방향 벡터 (로컬 +Z를 월드 좌표로 변환)
+        // 캐릭터 얼굴이 +Z 방향에 있음
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.group.quaternion);
 
-        this.latitude += latChange;
-        this.longitude += lonChange;
+        // 현재 위치에서 앞쪽 방향으로 이동
+        const currentPos = this.group.position.clone();
+        const newPos = currentPos.add(forward.multiplyScalar(moveAmount));
 
-        this.latitude = Math.max(-85, Math.min(85, this.latitude));
+        // 새 위치를 구면 좌표로 변환
+        const r = newPos.length();
+        const lat = Math.asin(newPos.y / r) * (180 / Math.PI);
+        const lon = Math.atan2(newPos.x, newPos.z) * (180 / Math.PI);
+
+        this.latitude = Math.max(-85, Math.min(85, lat));
+        this.longitude = lon;
         this.isWalking = true;
         this.updatePositionOnEarth();
     }

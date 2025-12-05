@@ -258,39 +258,55 @@ export class Character {
         const speed = this.isRunning ? this.runSpeed : this.walkSpeed;
         const moveAmount = speed * deltaTime;
 
-        // 바라보는 방향으로 이동
-        const moveAngle = this.facingAngle;
+        // 바라보는 방향으로 이동 (facingAngle 기준)
+        // facingAngle이 0일 때 경도 증가 방향(동쪽)으로 이동
+        const latChange = moveAmount * Math.sin(this.facingAngle);
+        const lonChange = moveAmount * Math.cos(this.facingAngle) / Math.max(0.1, Math.cos(THREE.MathUtils.degToRad(this.latitude)));
 
-        this.latitude += moveAmount * Math.cos(moveAngle);
-        this.longitude += moveAmount * Math.sin(moveAngle) / Math.max(0.1, Math.cos(THREE.MathUtils.degToRad(this.latitude)));
+        this.latitude += latChange;
+        this.longitude += lonChange;
 
         this.latitude = Math.max(-85, Math.min(85, this.latitude));
         this.isWalking = true;
         this.updatePositionOnEarth();
     }
 
-    // S: 뒤돌아보기 (180도 회전)
+    // S: 뒤돌아보기 (빠르게 180도 회전)
     turnAround(deltaTime) {
-        const turnAmount = this.turnSpeed * deltaTime * 3;
-        this.facingAngle += turnAmount;
-
-        // 180도(π) 회전 후 정규화
-        if (this.facingAngle > Math.PI * 2) {
-            this.facingAngle -= Math.PI * 2;
+        // 목표 각도 (현재 + 180도)
+        if (!this.turningAround) {
+            this.turningAround = true;
+            this.targetAngle = this.facingAngle + Math.PI;
         }
+
+        const turnSpeed = this.turnSpeed * 5; // 빠른 회전
+        const diff = this.targetAngle - this.facingAngle;
+
+        if (Math.abs(diff) > 0.05) {
+            this.facingAngle += Math.sign(diff) * turnSpeed * deltaTime;
+        } else {
+            this.facingAngle = this.targetAngle;
+            this.turningAround = false;
+        }
+
+        // 각도 정규화
+        while (this.facingAngle > Math.PI * 2) this.facingAngle -= Math.PI * 2;
+        while (this.facingAngle < 0) this.facingAngle += Math.PI * 2;
 
         this.updatePositionOnEarth();
     }
 
     // A: 왼쪽으로 방향 전환
     turnLeft(deltaTime) {
-        this.facingAngle -= this.turnSpeed * deltaTime;
+        this.facingAngle += this.turnSpeed * deltaTime;
+        this.turningAround = false; // S키 회전 취소
         this.updatePositionOnEarth();
     }
 
     // D: 오른쪽으로 방향 전환
     turnRight(deltaTime) {
-        this.facingAngle += this.turnSpeed * deltaTime;
+        this.facingAngle -= this.turnSpeed * deltaTime;
+        this.turningAround = false; // S키 회전 취소
         this.updatePositionOnEarth();
     }
 

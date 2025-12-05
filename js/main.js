@@ -37,20 +37,23 @@ const textureLoader = new THREE.TextureLoader();
 let loadedCount = 0;
 const totalTextures = 3;
 
-// Texture URLs from Solar System Scope (CC BY 4.0)
-const TEXTURE_BASE = 'https://www.solarsystemscope.com/textures/';
+// Texture URLs from GitHub (CORS-enabled)
+const TEXTURES = {
+    earth: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthmap4k.jpg',
+    clouds: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthclouds.png'
+};
 
 // Create Earth
 const earthGeometry = new THREE.SphereGeometry(1, 64, 64);
 
 // Load textures
 const earthDayTexture = textureLoader.load(
-    TEXTURE_BASE + '2k_earth_daymap.jpg',
+    TEXTURES.earth,
     () => updateLoading()
 );
 
 const cloudsTexture = textureLoader.load(
-    TEXTURE_BASE + '2k_earth_clouds.jpg',
+    TEXTURES.clouds,
     () => updateLoading()
 );
 

@@ -276,12 +276,12 @@ function updateCameraFollow() {
     const charPos = character.group.position.clone();
     const charUp = charPos.clone().normalize();
 
-    // 캐릭터 위쪽에서 내려다보기
-    const cameraOffset = charUp.clone().multiplyScalar(followDistance + followHeight);
+    // 초기 카메라와 동일하게 캐릭터 위쪽에서 내려다보기
+    const cameraOffset = charUp.clone().multiplyScalar(1.5);
 
     camera.position.copy(charPos).add(cameraOffset);
     camera.lookAt(charPos);
-    camera.up.copy(new THREE.Vector3(0, 0, 1));
+    camera.up.copy(new THREE.Vector3(0, 1, 0));
 }
 
 // Clock for deltaTime

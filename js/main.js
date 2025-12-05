@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Character } from './Character.js';
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -25,21 +26,16 @@ container.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
-controls.minDistance = 1.5;
+controls.minDistance = 1.2;
 controls.maxDistance = 10;
 controls.enablePan = false;
 
 // Texture loader
 const textureLoader = new THREE.TextureLoader();
-const loadingManager = new THREE.LoadingManager();
 
 // Loading progress
 let loadedCount = 0;
-const totalTextures = 4;
-
-loadingManager.onLoad = () => {
-    document.getElementById('loading').style.display = 'none';
-};
+const totalTextures = 3;
 
 // Texture URLs from Solar System Scope (CC BY 4.0)
 const TEXTURE_BASE = 'https://www.solarsystemscope.com/textures/';
@@ -52,36 +48,24 @@ const earthDayTexture = textureLoader.load(
     TEXTURE_BASE + '2k_earth_daymap.jpg',
     () => updateLoading()
 );
-const earthNightTexture = textureLoader.load(
-    TEXTURE_BASE + '2k_earth_nightmap.jpg',
-    () => updateLoading()
-);
-const earthBumpTexture = textureLoader.load(
-    TEXTURE_BASE + '2k_earth_normal_map.tif',
-    () => updateLoading(),
-    undefined,
-    () => {
-        // Fallback if tif doesn't load
-        updateLoading();
-    }
-);
-const earthSpecularTexture = textureLoader.load(
-    TEXTURE_BASE + '2k_earth_specular_map.tif',
-    () => updateLoading(),
-    undefined,
+
+const cloudsTexture = textureLoader.load(
+    TEXTURE_BASE + '2k_earth_clouds.jpg',
     () => updateLoading()
 );
 
 function updateLoading() {
     loadedCount++;
     const progress = Math.round((loadedCount / totalTextures) * 100);
-    document.getElementById('loading').textContent = `Loading Earth... ${progress}%`;
+    document.getElementById('loading').textContent = `Loading... ${progress}%`;
     if (loadedCount >= totalTextures) {
-        document.getElementById('loading').style.display = 'none';
+        setTimeout(() => {
+            document.getElementById('loading').style.display = 'none';
+        }, 300);
     }
 }
 
-// Earth material with day texture
+// Earth material
 const earthMaterial = new THREE.MeshPhongMaterial({
     map: earthDayTexture,
     bumpScale: 0.05,
@@ -93,13 +77,11 @@ const earth = new THREE.Mesh(earthGeometry, earthMaterial);
 scene.add(earth);
 
 // Clouds layer
-const cloudsGeometry = new THREE.SphereGeometry(1.01, 64, 64);
-const cloudsTexture = textureLoader.load(TEXTURE_BASE + '2k_earth_clouds.jpg');
-
+const cloudsGeometry = new THREE.SphereGeometry(1.005, 64, 64);
 const cloudsMaterial = new THREE.MeshPhongMaterial({
     map: cloudsTexture,
     transparent: true,
-    opacity: 0.4,
+    opacity: 0.35,
     depthWrite: false
 });
 
@@ -107,7 +89,7 @@ const clouds = new THREE.Mesh(cloudsGeometry, cloudsMaterial);
 scene.add(clouds);
 
 // Atmosphere glow
-const atmosphereGeometry = new THREE.SphereGeometry(1.15, 64, 64);
+const atmosphereGeometry = new THREE.SphereGeometry(1.12, 64, 64);
 const atmosphereMaterial = new THREE.ShaderMaterial({
     vertexShader: `
         varying vec3 vNormal;
@@ -119,7 +101,7 @@ const atmosphereMaterial = new THREE.ShaderMaterial({
     fragmentShader: `
         varying vec3 vNormal;
         void main() {
-            float intensity = pow(0.65 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+            float intensity = pow(0.6 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
             gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity;
         }
     `,
@@ -160,20 +142,140 @@ const stars = createStars();
 scene.add(stars);
 
 // Lighting
-const ambientLight = new THREE.AmbientLight(0x333333);
+const ambientLight = new THREE.AmbientLight(0x444444);
 scene.add(ambientLight);
 
 const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
 sunLight.position.set(5, 3, 5);
 scene.add(sunLight);
 
+// Add hemisphere light for better character visibility
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+scene.add(hemiLight);
+
+// === CHARACTER ===
+const character = new Character();
+character.setPosition(35, 139); // 도쿄 근처에서 시작
+scene.add(character.group);
+
+// 캐릭터 로드 완료
+updateLoading();
+
+// === KEYBOARD CONTROLS ===
+const keys = {
+    w: false,
+    a: false,
+    s: false,
+    d: false,
+    ArrowUp: false,
+    ArrowDown: false,
+    ArrowLeft: false,
+    ArrowRight: false
+};
+
+document.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    if (key in keys) keys[key] = true;
+    if (e.key in keys) keys[e.key] = true;
+});
+
+document.addEventListener('keyup', (e) => {
+    const key = e.key.toLowerCase();
+    if (key in keys) keys[key] = false;
+    if (e.key in keys) keys[e.key] = false;
+});
+
+function handleInput() {
+    let isMoving = false;
+
+    if (keys.w || keys.ArrowUp) {
+        character.moveForward();
+        isMoving = true;
+    }
+    if (keys.s || keys.ArrowDown) {
+        character.moveBackward();
+        isMoving = true;
+    }
+    if (keys.a || keys.ArrowLeft) {
+        character.moveLeft();
+        isMoving = true;
+    }
+    if (keys.d || keys.ArrowRight) {
+        character.moveRight();
+        isMoving = true;
+    }
+
+    if (!isMoving) {
+        character.stopWalking();
+    }
+}
+
+// === CAMERA FOLLOW MODE ===
+let followMode = false;
+const followDistance = 0.3;
+const followHeight = 0.15;
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') {
+        followMode = !followMode;
+        controls.enabled = !followMode;
+        updateInfoText();
+    }
+});
+
+function updateInfoText() {
+    const info = document.getElementById('info');
+    if (followMode) {
+        info.innerHTML = `
+            <strong>Follow Mode ON</strong> (Press F to toggle)<br>
+            WASD / Arrow Keys: Move character
+        `;
+    } else {
+        info.innerHTML = `
+            Drag to rotate | Scroll to zoom<br>
+            WASD / Arrow Keys: Move character<br>
+            F: Toggle follow camera
+        `;
+    }
+}
+
+function updateCameraFollow() {
+    if (!followMode) return;
+
+    const charPos = character.group.position.clone();
+    const charUp = charPos.clone().normalize();
+
+    // 캐릭터 뒤쪽 위에서 바라보기
+    const cameraOffset = charUp.clone().multiplyScalar(followHeight);
+    const backDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
+    cameraOffset.add(backDirection.multiplyScalar(followDistance));
+
+    camera.position.copy(charPos).add(cameraOffset);
+    camera.lookAt(charPos);
+    camera.up.copy(charUp);
+}
+
+// Clock for deltaTime
+const clock = new THREE.Clock();
+
 // Animation
 function animate() {
     requestAnimationFrame(animate);
 
-    // Slow Earth rotation
-    earth.rotation.y += 0.001;
-    clouds.rotation.y += 0.0012;
+    const deltaTime = clock.getDelta();
+
+    // Handle keyboard input
+    handleInput();
+
+    // Update character animation
+    character.update(deltaTime);
+
+    // Slow Earth rotation (disabled when character is on it)
+    // earth.rotation.y += 0.0005;
+    clouds.rotation.y += 0.0003;
+
+    // Camera follow
+    updateCameraFollow();
 
     controls.update();
     renderer.render(scene, camera);
@@ -186,8 +288,11 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// Initialize info text
+updateInfoText();
+
 // Start animation
 animate();
 
-// Export for later use (character walking)
-export { scene, earth, camera, renderer };
+// Export for debugging
+export { scene, earth, camera, renderer, character };

@@ -39,8 +39,8 @@ const totalTextures = 3;
 
 // Texture URLs from GitHub (CORS-enabled)
 const TEXTURES = {
-    earth: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthmap4k.jpg',
-    clouds: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthclouds.png'
+    earth: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthmap1k.jpg',
+    clouds: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthcloudmap.jpg'
 };
 
 // Create Earth

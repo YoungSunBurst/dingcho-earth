@@ -329,8 +329,14 @@ function updateCameraFollow() {
         const cameraPos = charPos.clone().add(cameraBackOffset).add(cameraUpOffset);
         camera.position.copy(cameraPos);
 
-        // 카메라가 캐릭터와 같은 방향을 바라보도록 quaternion 직접 설정
+        // 카메라는 -Z 방향을 바라보고, 캐릭터 얼굴은 +Z 방향
+        // 따라서 캐릭터 quaternion 복사 후 180도 회전 필요
         camera.quaternion.copy(character.group.quaternion);
+
+        // 로컬 Y축 기준 180도 회전 (카메라가 캐릭터와 같은 방향을 바라보도록)
+        const flipRotation = new THREE.Quaternion();
+        flipRotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+        camera.quaternion.multiply(flipRotation);
     }
 }
 

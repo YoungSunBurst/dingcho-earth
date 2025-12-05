@@ -77,6 +77,8 @@ const earthMaterial = new THREE.MeshPhongMaterial({
 });
 
 const earth = new THREE.Mesh(earthGeometry, earthMaterial);
+// 지구 텍스처 매핑 조정 (경도 0이 그리니치에 맞도록)
+earth.rotation.y = -Math.PI / 2;
 scene.add(earth);
 
 // Clouds layer
@@ -89,6 +91,7 @@ const cloudsMaterial = new THREE.MeshPhongMaterial({
 });
 
 const clouds = new THREE.Mesh(cloudsGeometry, cloudsMaterial);
+clouds.rotation.y = -Math.PI / 2;
 scene.add(clouds);
 
 // Atmosphere glow
@@ -166,14 +169,12 @@ function initCameraPosition() {
     const charPos = character.group.position.clone();
     const charUp = charPos.clone().normalize();
 
-    // 캐릭터 뒤쪽에서 바라보도록
-    const backDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(character.group.quaternion);
-    const cameraOffset = backDirection.clone().multiplyScalar(0.5);
-    cameraOffset.add(charUp.clone().multiplyScalar(0.3));
+    // 캐릭터에서 더 멀리, 더 높게 위치
+    const cameraOffset = charUp.clone().multiplyScalar(1.5);
 
     camera.position.copy(charPos).add(cameraOffset);
     camera.lookAt(charPos);
-    camera.up.copy(charUp);
+    camera.up.copy(new THREE.Vector3(0, 1, 0));
 }
 initCameraPosition();
 
@@ -276,18 +277,24 @@ function updateCameraFollow() {
     const charUp = charPos.clone().normalize();
 
     // 캐릭터가 바라보는 방향 (앞쪽 = 로컬 +Z)
-    const forwardDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
-    // 캐릭터 뒤쪽 방향 (로컬 -Z)
-    const backDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(character.group.quaternion);
+    const forwardLocal = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
+
+    // 지구 표면 접선 방향으로 투영 (지구 중심 향하는 성분 제거)
+    const forwardTangent = forwardLocal.clone();
+    forwardTangent.sub(charUp.clone().multiplyScalar(forwardLocal.dot(charUp)));
+    forwardTangent.normalize();
+
+    // 캐릭터 뒤쪽 접선 방향
+    const backTangent = forwardTangent.clone().negate();
 
     // 카메라 위치: 캐릭터 뒤쪽 + 위쪽 (뒷통수가 보이는 위치)
-    const cameraOffset = backDirection.clone().multiplyScalar(followDistance);
+    const cameraOffset = backTangent.clone().multiplyScalar(followDistance);
     cameraOffset.add(charUp.clone().multiplyScalar(followHeight));
 
     camera.position.copy(charPos).add(cameraOffset);
 
-    // 캐릭터가 이동할 방향(앞쪽)을 바라보기
-    const lookTarget = charPos.clone().add(forwardDirection.multiplyScalar(0.5));
+    // 캐릭터 앞쪽 지구 표면 방향을 바라보기
+    const lookTarget = charPos.clone().add(forwardTangent.multiplyScalar(0.3));
     camera.lookAt(lookTarget);
     camera.up.copy(charUp);
 }

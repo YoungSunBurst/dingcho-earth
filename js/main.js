@@ -319,29 +319,26 @@ function updateCameraFollow() {
         camera.up.copy(new THREE.Vector3(0, 1, 0));
     } else if (cameraMode === 'front') {
         // 정면뷰: 캐릭터 뒤에서 캐릭터가 바라보는 방향으로 바라보기
+
+        // 캐릭터의 로컬 좌표계 벡터들
         const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(character.group.quaternion);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(character.group.quaternion);
 
         // 캐릭터 뒤쪽으로 카메라 이동
         const cameraBackOffset = forward.clone().multiplyScalar(-0.5);
         // 캐릭터 머리 높이 정도로 올리기
-        const cameraUpOffset = charUp.clone().multiplyScalar(0.08);
+        const cameraUpOffset = up.clone().multiplyScalar(0.05);
 
         const cameraPos = charPos.clone().add(cameraBackOffset).add(cameraUpOffset);
         camera.position.copy(cameraPos);
 
-        // 캐릭터의 회전에서 Yaw만 가져오기
-        const euler = new THREE.Euler().setFromQuaternion(character.group.quaternion, 'YXZ');
+        // 카메라가 바라볼 타겟 (캐릭터 앞쪽)
+        const lookTarget = cameraPos.clone().add(forward.clone().multiplyScalar(1));
 
-        // pitch = 0, roll = 0 으로 고정하고 yaw만 사용
-        const yawOnly = new THREE.Euler(0, euler.y, 0, 'YXZ');
-        const yawQuat = new THREE.Quaternion().setFromEuler(yawOnly);
-
-        // 카메라 회전 = yaw만 적용
-        camera.quaternion.copy(yawQuat);
-
-        // 캐릭터가 바라보는 방향을 보도록 180도 돌리기
-        const flip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
-        camera.quaternion.multiply(flip);
+        // 카메라 up 벡터를 캐릭터의 up과 동일하게 설정
+        camera.up.copy(up);
+        camera.lookAt(lookTarget);
     }
 }
 
@@ -367,7 +364,10 @@ function animate() {
     // Camera follow
     updateCameraFollow();
 
-    controls.update();
+    // OrbitControls는 free 모드에서만 업데이트
+    if (cameraMode === 'free') {
+        controls.update();
+    }
     renderer.render(scene, camera);
 }
 

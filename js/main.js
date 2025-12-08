@@ -81,8 +81,9 @@ function isLandAt(lat, lon) {
     const index = (clampedY * landMaskCanvas.width + clampedX) * 4;
     const r = landMaskImageData.data[index];
 
-    // 밝기가 일정 이상이면 육지 (specular map에서 육지는 밝음)
-    return r > 50;
+    // specular map: 바다는 밝음(반사율 높음), 육지는 어두움(반사율 낮음)
+    // 따라서 어두운 픽셀(r < 50)이 육지
+    return r < 50;
 }
 
 // Create Earth

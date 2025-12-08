@@ -447,6 +447,12 @@ document.addEventListener('keyup', (e) => {
 });
 
 function handleInput(deltaTime) {
+    // 물에 빠진 동안에는 입력 무시
+    if (character.isDrowning) {
+        character.stopWalking();
+        return;
+    }
+
     let isMoving = false;
 
     // Shift: 달리기 모드
@@ -589,8 +595,8 @@ function animate() {
     // Update character animation
     character.update(deltaTime);
 
-    // 캐릭터가 걷고 있으면 현재 위치에 색칠
-    if (character.isWalking) {
+    // 캐릭터가 걷고 있고 물에 빠지지 않았으면 현재 위치에 색칠
+    if (character.isWalking && !character.isDrowning) {
         paintAt(character.latitude, character.longitude);
     }
 

@@ -216,9 +216,9 @@ const paintedSet = new Set(); // 이미 칠한 좌표 추적
 const PAINT_RADIUS = 3; // 브러시 크기
 
 function paintAt(lat, lon) {
-    if (!paintCanvas || !landMaskImageData) return;
+    if (!paintCanvas) return;
 
-    // 육지가 아니면 칠하지 않음
+    // 이동 불가 영역(바다)이면 칠하지 않음 - 캐릭터 이동 로직과 동일
     if (!isLandAt(lat, lon)) return;
 
     // 텍스처 좌표로 변환
@@ -228,7 +228,7 @@ function paintAt(lat, lon) {
     let painted = false;
     paintCtx.fillStyle = playerColor.hsl;
 
-    // 브러시 크기만큼 원형으로 칠하기 - 육지 픽셀만
+    // 브러시 크기만큼 원형으로 칠하기
     for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
         for (let dx = -PAINT_RADIUS; dx <= PAINT_RADIUS; dx++) {
             if (dx * dx + dy * dy <= PAINT_RADIUS * PAINT_RADIUS) {
@@ -237,17 +237,10 @@ function paintAt(lat, lon) {
 
                 const key = `${px},${py}`;
                 if (!paintedSet.has(key)) {
-                    // 해당 위치가 육지인지 확인
-                    const checkLat = 90 - (py / PAINT_HEIGHT) * 180;
-                    const checkLon = (px / PAINT_WIDTH) * 360 - 180;
-
-                    if (isLandAt(checkLat, checkLon)) {
-                        paintedSet.add(key);
-                        paintedPixels++;
-                        // 육지인 픽셀만 캔버스에 그리기
-                        paintCtx.fillRect(px, py, 1, 1);
-                        painted = true;
-                    }
+                    paintedSet.add(key);
+                    paintedPixels++;
+                    paintCtx.fillRect(px, py, 1, 1);
+                    painted = true;
                 }
             }
         }

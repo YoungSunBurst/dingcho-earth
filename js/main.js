@@ -59,6 +59,9 @@ landMaskImage.onload = () => {
     landMaskCtx.drawImage(landMaskImage, 0, 0);
     landMaskImageData = landMaskCtx.getImageData(0, 0, landMaskCanvas.width, landMaskCanvas.height);
     console.log('Earth texture loaded for land detection:', landMaskCanvas.width, 'x', landMaskCanvas.height);
+
+    // 육지 픽셀 수 계산 (페인트 퍼센트 계산용)
+    setTimeout(() => calculateTotalLandPixels(), 100);
 };
 landMaskImage.src = TEXTURES.earth;
 
@@ -117,6 +120,155 @@ function isLandAt(lat, lon) {
     return hsl.s < 60;
 }
 
+// === PAINT SYSTEM ===
+// 랜덤 플레이어 색상 생성
+function generateRandomColor() {
+    const hue = Math.random() * 360;
+    const saturation = 70 + Math.random() * 30; // 70-100%
+    const lightness = 50 + Math.random() * 20;  // 50-70%
+    return {
+        hsl: `hsl(${hue}, ${saturation}%, ${lightness}%)`,
+        rgb: hslToRgb(hue / 360, saturation / 100, lightness / 100)
+    };
+}
+
+// HSL을 RGB로 변환
+function hslToRgb(h, s, l) {
+    let r, g, b;
+    if (s === 0) {
+        r = g = b = l;
+    } else {
+        const hue2rgb = (p, q, t) => {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1/6) return p + (q - p) * 6 * t;
+            if (t < 1/2) return q;
+            if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+            return p;
+        };
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1/3);
+    }
+    return {
+        r: Math.round(r * 255),
+        g: Math.round(g * 255),
+        b: Math.round(b * 255)
+    };
+}
+
+const playerColor = generateRandomColor();
+document.getElementById('player-color').style.backgroundColor = playerColor.hsl;
+
+// 페인트 캔버스 (지구 텍스처와 동일한 크기)
+const PAINT_WIDTH = 1024;
+const PAINT_HEIGHT = 512;
+let paintCanvas = null;
+let paintCtx = null;
+let paintTexture = null;
+let paintedPixels = 0;
+let totalLandPixels = 0;
+
+// 페인트 캔버스 초기화
+function initPaintCanvas() {
+    paintCanvas = document.createElement('canvas');
+    paintCanvas.width = PAINT_WIDTH;
+    paintCanvas.height = PAINT_HEIGHT;
+    paintCtx = paintCanvas.getContext('2d');
+
+    // 투명하게 초기화
+    paintCtx.clearRect(0, 0, PAINT_WIDTH, PAINT_HEIGHT);
+
+    // Three.js 텍스처 생성
+    paintTexture = new THREE.CanvasTexture(paintCanvas);
+    paintTexture.needsUpdate = true;
+}
+initPaintCanvas();
+
+// 육지 픽셀 수 계산 (landMaskImageData 로드 후 호출)
+function calculateTotalLandPixels() {
+    if (!landMaskImageData) return;
+
+    totalLandPixels = 0;
+    const width = landMaskCanvas.width;
+    const height = landMaskCanvas.height;
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            const r = landMaskImageData.data[index];
+            const g = landMaskImageData.data[index + 1];
+            const b = landMaskImageData.data[index + 2];
+            const hsl = rgbToHsl(r, g, b);
+
+            if (hsl.s < 60) {
+                totalLandPixels++;
+            }
+        }
+    }
+    console.log('Total land pixels:', totalLandPixels);
+}
+
+// 위도/경도에 색칠
+const paintedSet = new Set(); // 이미 칠한 좌표 추적
+const PAINT_RADIUS = 3; // 브러시 크기
+
+function paintAt(lat, lon) {
+    if (!paintCanvas || !landMaskImageData) return;
+
+    // 육지가 아니면 칠하지 않음
+    if (!isLandAt(lat, lon)) return;
+
+    // 텍스처 좌표로 변환
+    const x = Math.floor(((lon + 180) / 360) * PAINT_WIDTH);
+    const y = Math.floor(((90 - lat) / 180) * PAINT_HEIGHT);
+
+    // 브러시 크기만큼 원형으로 칠하기
+    for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
+        for (let dx = -PAINT_RADIUS; dx <= PAINT_RADIUS; dx++) {
+            if (dx * dx + dy * dy <= PAINT_RADIUS * PAINT_RADIUS) {
+                const px = (x + dx + PAINT_WIDTH) % PAINT_WIDTH;
+                const py = Math.max(0, Math.min(PAINT_HEIGHT - 1, y + dy));
+
+                const key = `${px},${py}`;
+                if (!paintedSet.has(key)) {
+                    // 해당 위치가 육지인지 확인
+                    const checkLat = 90 - (py / PAINT_HEIGHT) * 180;
+                    const checkLon = (px / PAINT_WIDTH) * 360 - 180;
+
+                    if (isLandAt(checkLat, checkLon)) {
+                        paintedSet.add(key);
+                        paintedPixels++;
+                    }
+                }
+            }
+        }
+    }
+
+    // 캔버스에 그리기
+    paintCtx.fillStyle = playerColor.hsl;
+    paintCtx.beginPath();
+    paintCtx.arc(x, y, PAINT_RADIUS, 0, Math.PI * 2);
+    paintCtx.fill();
+
+    // 텍스처 업데이트
+    if (paintTexture) {
+        paintTexture.needsUpdate = true;
+    }
+
+    // 퍼센트 업데이트
+    updatePaintPercent();
+}
+
+function updatePaintPercent() {
+    if (totalLandPixels === 0) return;
+
+    const percent = (paintedPixels / totalLandPixels) * 100;
+    document.getElementById('paint-percent').textContent = percent.toFixed(2) + '%';
+}
+
 // Create Earth
 const earthGeometry = new THREE.SphereGeometry(1, 64, 64);
 
@@ -154,6 +306,18 @@ const earth = new THREE.Mesh(earthGeometry, earthMaterial);
 // 지구 텍스처 매핑 조정 (경도 0이 그리니치에 맞도록)
 earth.rotation.y = -Math.PI / 2;
 scene.add(earth);
+
+// Paint layer (지구 위에 색칠된 영역 표시)
+const paintGeometry = new THREE.SphereGeometry(1.002, 64, 64);
+const paintMaterial = new THREE.MeshBasicMaterial({
+    map: paintTexture,
+    transparent: true,
+    opacity: 0.7,
+    depthWrite: false
+});
+const paintLayer = new THREE.Mesh(paintGeometry, paintMaterial);
+paintLayer.rotation.y = -Math.PI / 2;
+scene.add(paintLayer);
 
 // Clouds layer
 const cloudsGeometry = new THREE.SphereGeometry(1.005, 64, 64);
@@ -431,6 +595,11 @@ function animate() {
 
     // Update character animation
     character.update(deltaTime);
+
+    // 캐릭터가 걷고 있으면 현재 위치에 색칠
+    if (character.isWalking) {
+        paintAt(character.latitude, character.longitude);
+    }
 
     // Slow Earth rotation (disabled when character is on it)
     // earth.rotation.y += 0.0005;

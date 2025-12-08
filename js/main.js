@@ -115,9 +115,9 @@ function isLandAt(lat, lon) {
     // RGB를 HSL로 변환하여 채도 확인
     const hsl = rgbToHsl(r, g, b);
 
-    // 채도가 60% 이상이면 바다 (파란색 계열)
-    // 따라서 채도가 60% 미만이면 육지
-    return hsl.s < 60;
+    // 채도가 65% 이상이면 바다 (파란색 계열)
+    // 따라서 채도가 65% 미만이면 육지
+    return hsl.s < 65;
 }
 
 // === PAINT SYSTEM ===
@@ -203,7 +203,7 @@ function calculateTotalLandPixels() {
             const b = landMaskImageData.data[index + 2];
             const hsl = rgbToHsl(r, g, b);
 
-            if (hsl.s < 60) {
+            if (hsl.s < 65) {
                 totalLandPixels++;
             }
         }

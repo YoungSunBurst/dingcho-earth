@@ -27,6 +27,15 @@ export class Character {
         this.jumpForce = 0.8;
         this.gravity = 2.5;
 
+        // 점프 시작 위치 저장 (물에 빠졌을 때 복귀용)
+        this.lastJumpLat = 0;
+        this.lastJumpLon = 0;
+
+        // 물에 빠짐 상태
+        this.isDrowning = false;
+        this.drowningTime = 0;
+        this.drowningDuration = 1.0; // 1초간 빠지는 애니메이션
+
         // 육지 체크 함수 (외부에서 설정)
         this.landCheckFn = null;
 
@@ -344,7 +353,11 @@ export class Character {
 
     // Space: 점프
     jump() {
-        if (!this.isJumping) {
+        if (!this.isJumping && !this.isDrowning) {
+            // 점프 시작 위치 저장
+            this.lastJumpLat = this.latitude;
+            this.lastJumpLon = this.longitude;
+
             this.isJumping = true;
             this.jumpVelocity = this.jumpForce;
         }
@@ -363,9 +376,37 @@ export class Character {
                 this.characterHeight = this.baseHeight;
                 this.isJumping = false;
                 this.jumpVelocity = 0;
+
+                // 착지 위치가 물인지 확인
+                if (this.landCheckFn && !this.landCheckFn(this.latitude, this.longitude)) {
+                    // 물에 빠짐!
+                    this.isDrowning = true;
+                    this.drowningTime = 0;
+                }
             }
 
             this.updatePositionOnEarth();
+        }
+    }
+
+    // 물에 빠지는 애니메이션 업데이트
+    updateDrowning(deltaTime) {
+        if (this.isDrowning) {
+            this.drowningTime += deltaTime;
+
+            // 물에 가라앉는 효과
+            const sinkAmount = (this.drowningTime / this.drowningDuration) * 0.1;
+            this.characterHeight = this.baseHeight - sinkAmount;
+            this.updatePositionOnEarth();
+
+            // 애니메이션 완료 후 복귀
+            if (this.drowningTime >= this.drowningDuration) {
+                this.isDrowning = false;
+                this.characterHeight = this.baseHeight;
+                this.latitude = this.lastJumpLat;
+                this.longitude = this.lastJumpLon;
+                this.updatePositionOnEarth();
+            }
         }
     }
 
@@ -383,5 +424,6 @@ export class Character {
     update(deltaTime) {
         this.animateWalk(deltaTime);
         this.updateJump(deltaTime);
+        this.updateDrowning(deltaTime);
     }
 }

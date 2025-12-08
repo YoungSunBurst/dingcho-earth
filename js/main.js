@@ -40,8 +40,7 @@ const totalTextures = 3;
 // Texture URLs from GitHub (CORS-enabled)
 const TEXTURES = {
     earth: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthmap1k.jpg',
-    clouds: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthcloudmap.jpg',
-    landMask: 'https://raw.githubusercontent.com/turban/webgl-earth/master/images/earthspec1k.jpg'
+    clouds: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthcloudmap.jpg'
 };
 
 // 육지/바다 판별을 위한 캔버스
@@ -49,7 +48,7 @@ let landMaskCanvas = null;
 let landMaskCtx = null;
 let landMaskImageData = null;
 
-// 육지/바다 마스크 이미지 로드
+// 지구 텍스처 이미지 로드 (육지/바다 판별용)
 const landMaskImage = new Image();
 landMaskImage.crossOrigin = 'anonymous';
 landMaskImage.onload = () => {
@@ -59,9 +58,36 @@ landMaskImage.onload = () => {
     landMaskCtx = landMaskCanvas.getContext('2d');
     landMaskCtx.drawImage(landMaskImage, 0, 0);
     landMaskImageData = landMaskCtx.getImageData(0, 0, landMaskCanvas.width, landMaskCanvas.height);
-    console.log('Land mask loaded:', landMaskCanvas.width, 'x', landMaskCanvas.height);
+    console.log('Earth texture loaded for land detection:', landMaskCanvas.width, 'x', landMaskCanvas.height);
 };
-landMaskImage.src = TEXTURES.landMask;
+landMaskImage.src = TEXTURES.earth;
+
+// RGB를 HSL로 변환하는 함수
+function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+
+    if (max === min) {
+        return { h: 0, s: 0, l: l * 100 };
+    }
+
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+
+    let h;
+    switch (max) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+        case g: h = ((b - r) / d + 2) / 6; break;
+        case b: h = ((r - g) / d + 4) / 6; break;
+    }
+
+    return { h: h * 360, s: s * 100, l: l * 100 };
+}
 
 // 위도/경도로 육지인지 확인하는 함수
 function isLandAt(lat, lon) {
@@ -80,10 +106,15 @@ function isLandAt(lat, lon) {
     // 픽셀 데이터 읽기 (RGBA)
     const index = (clampedY * landMaskCanvas.width + clampedX) * 4;
     const r = landMaskImageData.data[index];
+    const g = landMaskImageData.data[index + 1];
+    const b = landMaskImageData.data[index + 2];
 
-    // specular map: 바다는 밝음(반사율 높음), 육지는 어두움(반사율 낮음)
-    // 따라서 어두운 픽셀(r < 50)이 육지
-    return r < 50;
+    // RGB를 HSL로 변환하여 채도 확인
+    const hsl = rgbToHsl(r, g, b);
+
+    // 채도가 60% 이상이면 바다 (파란색 계열)
+    // 따라서 채도가 60% 미만이면 육지
+    return hsl.s < 60;
 }
 
 // Create Earth

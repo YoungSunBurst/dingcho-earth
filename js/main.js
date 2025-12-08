@@ -225,7 +225,10 @@ function paintAt(lat, lon) {
     const x = Math.floor(((lon + 180) / 360) * PAINT_WIDTH);
     const y = Math.floor(((90 - lat) / 180) * PAINT_HEIGHT);
 
-    // 브러시 크기만큼 원형으로 칠하기
+    let painted = false;
+    paintCtx.fillStyle = playerColor.hsl;
+
+    // 브러시 크기만큼 원형으로 칠하기 - 육지 픽셀만
     for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
         for (let dx = -PAINT_RADIUS; dx <= PAINT_RADIUS; dx++) {
             if (dx * dx + dy * dy <= PAINT_RADIUS * PAINT_RADIUS) {
@@ -241,20 +244,17 @@ function paintAt(lat, lon) {
                     if (isLandAt(checkLat, checkLon)) {
                         paintedSet.add(key);
                         paintedPixels++;
+                        // 육지인 픽셀만 캔버스에 그리기
+                        paintCtx.fillRect(px, py, 1, 1);
+                        painted = true;
                     }
                 }
             }
         }
     }
 
-    // 캔버스에 그리기
-    paintCtx.fillStyle = playerColor.hsl;
-    paintCtx.beginPath();
-    paintCtx.arc(x, y, PAINT_RADIUS, 0, Math.PI * 2);
-    paintCtx.fill();
-
-    // 텍스처 업데이트
-    if (paintTexture) {
+    // 텍스처 업데이트 (새로 칠한 픽셀이 있을 때만)
+    if (painted && paintTexture) {
         paintTexture.needsUpdate = true;
     }
 

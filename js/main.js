@@ -92,16 +92,7 @@ function rgbToHsl(r, g, b) {
     return { h: h * 360, s: s * 100, l: l * 100 };
 }
 
-// 위도/경도로 육지인지 확인하는 함수
-function isLandAt(lat, lon) {
-    if (!landMaskImageData) return true; // 마스크 로드 전에는 모두 육지로 처리
-
-    // 위도/경도를 텍스처 좌표로 변환
-    // 경도: -180 ~ 180 -> 0 ~ width
-    // 위도: 90 ~ -90 -> 0 ~ height
-    const x = Math.floor(((lon + 180) / 360) * landMaskCanvas.width);
-    const y = Math.floor(((90 - lat) / 180) * landMaskCanvas.height);
-
+function isLandAtXY(x, y) {
     // 범위 체크
     const clampedX = Math.max(0, Math.min(landMaskCanvas.width - 1, x));
     const clampedY = Math.max(0, Math.min(landMaskCanvas.height - 1, y));
@@ -115,9 +106,21 @@ function isLandAt(lat, lon) {
     // RGB를 HSL로 변환하여 채도 확인
     const hsl = rgbToHsl(r, g, b);
 
-    // 채도가 65% 이상이면 바다 (파란색 계열)
-    // 따라서 채도가 65% 미만이면 육지
-    return hsl.s < 65;
+    // 채도가 55% 이상이면 바다 (파란색 계열)
+    // 따라서 채도가 55% 미만이면 육지
+    return hsl.s < 55;
+}
+
+// 위도/경도로 육지인지 확인하는 함수
+function isLandAt(lat, lon) {
+    if (!landMaskImageData) return true; // 마스크 로드 전에는 모두 육지로 처리
+
+    // 위도/경도를 텍스처 좌표로 변환
+    // 경도: -180 ~ 180 -> 0 ~ width
+    // 위도: 90 ~ -90 -> 0 ~ height
+    const x = Math.floor(((lon + 180) / 360) * landMaskCanvas.width);
+    const y = Math.floor(((90 - lat) / 180) * landMaskCanvas.height);
+    return isLandAtXY(x, y);
 }
 
 // === PAINT SYSTEM ===
@@ -163,8 +166,8 @@ const playerColor = generateRandomColor();
 document.getElementById('player-color').style.backgroundColor = playerColor.hsl;
 
 // 페인트 캔버스 (지구 텍스처와 동일한 크기)
-const PAINT_WIDTH = 1024;
-const PAINT_HEIGHT = 512;
+const PAINT_WIDTH = 1000;
+const PAINT_HEIGHT = 500;
 let paintCanvas = null;
 let paintCtx = null;
 let paintTexture = null;
@@ -237,10 +240,15 @@ function paintAt(lat, lon) {
 
                 const key = `${px},${py}`;
                 if (!paintedSet.has(key)) {
-                    paintedSet.add(key);
-                    paintedPixels++;
-                    paintCtx.fillRect(px, py, 1, 1);
-                    painted = true;
+                    // 해당 위치가 육지인지 확인
+                    if (isLandAt(px, py)) {
+                        console.log(px, py)
+                        paintedSet.add(key);
+                        paintedPixels++;
+                        // 육지인 픽셀만 캔버스에 그리기
+                        paintCtx.fillRect(px, py, 1, 1);
+                        painted = true;
+                    }
                 }
             }
         }

@@ -27,6 +27,9 @@ export class Character {
         this.jumpForce = 0.8;
         this.gravity = 2.5;
 
+        // 육지 체크 함수 (외부에서 설정)
+        this.landCheckFn = null;
+
         this.createCharacter();
         this.updatePositionOnEarth();
     }
@@ -275,11 +278,22 @@ export class Character {
 
         // 새 위치를 구면 좌표로 변환
         const r = newPos.length();
-        const lat = Math.asin(newPos.y / r) * (180 / Math.PI);
-        const lon = Math.atan2(newPos.x, newPos.z) * (180 / Math.PI);
+        const newLat = Math.asin(newPos.y / r) * (180 / Math.PI);
+        const newLon = Math.atan2(newPos.x, newPos.z) * (180 / Math.PI);
 
-        this.latitude = Math.max(-85, Math.min(85, lat));
-        this.longitude = lon;
+        const clampedLat = Math.max(-85, Math.min(85, newLat));
+
+        // 육지 체크: 점프 중이 아니고 바다면 이동 불가
+        if (this.landCheckFn && !this.isJumping) {
+            if (!this.landCheckFn(clampedLat, newLon)) {
+                // 바다입니다 - 이동 불가, 걷기 애니메이션만
+                this.isWalking = true;
+                return;
+            }
+        }
+
+        this.latitude = clampedLat;
+        this.longitude = newLon;
         this.isWalking = true;
         this.updatePositionOnEarth();
     }

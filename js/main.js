@@ -40,8 +40,50 @@ const totalTextures = 3;
 // Texture URLs from GitHub (CORS-enabled)
 const TEXTURES = {
     earth: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthmap1k.jpg',
-    clouds: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthcloudmap.jpg'
+    clouds: 'https://raw.githubusercontent.com/miguelmota/threejs-earth/master/images/earthcloudmap.jpg',
+    landMask: 'https://raw.githubusercontent.com/turban/webgl-earth/master/images/earthspec1k.jpg'
 };
+
+// 육지/바다 판별을 위한 캔버스
+let landMaskCanvas = null;
+let landMaskCtx = null;
+let landMaskImageData = null;
+
+// 육지/바다 마스크 이미지 로드
+const landMaskImage = new Image();
+landMaskImage.crossOrigin = 'anonymous';
+landMaskImage.onload = () => {
+    landMaskCanvas = document.createElement('canvas');
+    landMaskCanvas.width = landMaskImage.width;
+    landMaskCanvas.height = landMaskImage.height;
+    landMaskCtx = landMaskCanvas.getContext('2d');
+    landMaskCtx.drawImage(landMaskImage, 0, 0);
+    landMaskImageData = landMaskCtx.getImageData(0, 0, landMaskCanvas.width, landMaskCanvas.height);
+    console.log('Land mask loaded:', landMaskCanvas.width, 'x', landMaskCanvas.height);
+};
+landMaskImage.src = TEXTURES.landMask;
+
+// 위도/경도로 육지인지 확인하는 함수
+function isLandAt(lat, lon) {
+    if (!landMaskImageData) return true; // 마스크 로드 전에는 모두 육지로 처리
+
+    // 위도/경도를 텍스처 좌표로 변환
+    // 경도: -180 ~ 180 -> 0 ~ width
+    // 위도: 90 ~ -90 -> 0 ~ height
+    const x = Math.floor(((lon + 180) / 360) * landMaskCanvas.width);
+    const y = Math.floor(((90 - lat) / 180) * landMaskCanvas.height);
+
+    // 범위 체크
+    const clampedX = Math.max(0, Math.min(landMaskCanvas.width - 1, x));
+    const clampedY = Math.max(0, Math.min(landMaskCanvas.height - 1, y));
+
+    // 픽셀 데이터 읽기 (RGBA)
+    const index = (clampedY * landMaskCanvas.width + clampedX) * 4;
+    const r = landMaskImageData.data[index];
+
+    // 밝기가 일정 이상이면 육지 (specular map에서 육지는 밝음)
+    return r > 50;
+}
 
 // Create Earth
 const earthGeometry = new THREE.SphereGeometry(1, 64, 64);
@@ -162,6 +204,7 @@ scene.add(hemiLight);
 // === CHARACTER ===
 const character = new Character();
 character.setPosition(37, 127); // 한국(서울) 근처에서 시작
+character.landCheckFn = isLandAt; // 육지 체크 함수 연결
 scene.add(character.group);
 
 // 초기 카메라 위치를 캐릭터가 보이는 곳으로 설정

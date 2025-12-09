@@ -1,5 +1,6 @@
 /**
  * Multiplayer Client Module for Dingcho Earth
+ * COMPETITIVE MODE - Territory battle!
  *
  * Handles WebSocket connection and synchronization with server
  */
@@ -24,6 +25,7 @@ export class MultiplayerClient {
         this.onPainted = options.onPainted || (() => {});
         this.onPaintedBatch = options.onPaintedBatch || (() => {});
         this.onInitialState = options.onInitialState || (() => {});
+        this.onLeaderboard = options.onLeaderboard || (() => {}); // NEW: Leaderboard callback
         this.onError = options.onError || (() => {});
 
         // Position update throttling
@@ -97,13 +99,18 @@ export class MultiplayerClient {
                         color: this.playerColor,
                         position: message.position,
                         players: message.players,
-                        paintData: message.paintData
+                        paintData: message.paintData,
+                        leaderboard: message.leaderboard || []
                     });
 
                     this.onConnected({
                         playerId: this.playerId,
                         color: this.playerColor
                     });
+                    break;
+
+                case 'leaderboard':
+                    this.onLeaderboard(message.rankings || []);
                     break;
 
                 case 'playerJoined':

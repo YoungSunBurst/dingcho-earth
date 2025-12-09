@@ -681,6 +681,37 @@ function updatePlayerCount() {
     }
 }
 
+// 리더보드 업데이트
+function updateLeaderboard(rankings) {
+    const leaderboardEl = document.getElementById('leaderboard-list');
+    if (!leaderboardEl) return;
+
+    leaderboardEl.innerHTML = '';
+
+    rankings.forEach((player, index) => {
+        const isMe = player.playerId === myPlayerId;
+        const item = document.createElement('div');
+        item.className = 'leaderboard-item' + (isMe ? ' me' : '');
+
+        const rank = document.createElement('span');
+        rank.className = 'rank';
+        rank.textContent = `#${index + 1}`;
+
+        const colorBox = document.createElement('span');
+        colorBox.className = 'color-box';
+        colorBox.style.backgroundColor = player.color;
+
+        const pixels = document.createElement('span');
+        pixels.className = 'pixels';
+        pixels.textContent = player.pixelCount.toLocaleString();
+
+        item.appendChild(rank);
+        item.appendChild(colorBox);
+        item.appendChild(pixels);
+        leaderboardEl.appendChild(item);
+    });
+}
+
 // 멀티플레이어 초기화
 function initMultiplayer() {
     multiplayerClient = new MultiplayerClient({
@@ -725,6 +756,11 @@ function initMultiplayer() {
                     paintPixel(x, y, paint.color);
                 });
             }
+
+            // 초기 리더보드 설정
+            if (state.leaderboard) {
+                updateLeaderboard(state.leaderboard);
+            }
         },
 
         onPlayerJoined: (player) => {
@@ -756,6 +792,10 @@ function initMultiplayer() {
                     paintPixel(pixel.x, pixel.y, data.color);
                 });
             }
+        },
+
+        onLeaderboard: (rankings) => {
+            updateLeaderboard(rankings);
         },
 
         onError: (error) => {

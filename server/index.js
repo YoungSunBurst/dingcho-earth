@@ -1,10 +1,12 @@
 /**
  * Multiplayer WebSocket Server for Dingcho Earth
+ * COMPETITIVE MODE - Players compete for territory!
  *
  * Manages:
  * - Player connections with unique IDs and colors
  * - Player positions (latitude, longitude, facingAngle)
- * - Paint data synchronization across all clients
+ * - Paint data with territory ownership tracking
+ * - Leaderboard (ranking by painted pixel count)
  */
 
 const WebSocket = require('ws');
@@ -14,13 +16,19 @@ const PORT = process.env.PORT || 3001;
 
 // Create HTTP server
 const server = http.createServer((req, res) => {
-    // CORS headers for health check
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET');
 
     if (req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', players: players.size }));
+        res.end(JSON.stringify({
+            status: 'ok',
+            players: players.size,
+            totalPaintedPixels: paintData.size
+        }));
+    } else if (req.url === '/leaderboard') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(getLeaderboard()));
     } else {
         res.writeHead(404);
         res.end('Not Found');
@@ -30,23 +38,44 @@ const server = http.createServer((req, res) => {
 // Create WebSocket server
 const wss = new WebSocket.Server({ server });
 
-// Player storage
+// Player storage - includes pixelCount for ranking
 const players = new Map();
 
 // Paint data storage - Map of "x,y" -> { color, playerId }
 const paintData = new Map();
 
+// Player pixel counts - Map of playerId -> count
+const playerPixelCounts = new Map();
+
 // Generate random color for new player
 function generateRandomColor() {
     const hue = Math.random() * 360;
-    const saturation = 70 + Math.random() * 30; // 70-100%
-    const lightness = 50 + Math.random() * 20;  // 50-70%
+    const saturation = 70 + Math.random() * 30;
+    const lightness = 50 + Math.random() * 20;
     return `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`;
 }
 
 // Generate unique player ID
 function generatePlayerId() {
     return 'player_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Get leaderboard sorted by pixel count
+function getLeaderboard() {
+    const leaderboard = [];
+
+    players.forEach((player, playerId) => {
+        leaderboard.push({
+            playerId: playerId,
+            color: player.color,
+            pixelCount: playerPixelCounts.get(playerId) || 0
+        });
+    });
+
+    // Sort by pixel count descending
+    leaderboard.sort((a, b) => b.pixelCount - a.pixelCount);
+
+    return leaderboard;
 }
 
 // Broadcast message to all clients except sender
@@ -72,12 +101,53 @@ function broadcastAll(message) {
     });
 }
 
+// Broadcast leaderboard to all clients
+function broadcastLeaderboard() {
+    broadcastAll({
+        type: 'leaderboard',
+        rankings: getLeaderboard()
+    });
+}
+
+// Paint a pixel and handle territory changes
+function paintPixel(x, y, playerId) {
+    const key = `${x},${y}`;
+    const player = players.get(playerId);
+    if (!player) return null;
+
+    const existing = paintData.get(key);
+    let previousOwner = null;
+
+    // If pixel was owned by another player, decrease their count
+    if (existing && existing.playerId !== playerId) {
+        previousOwner = existing.playerId;
+        const prevCount = playerPixelCounts.get(previousOwner) || 0;
+        if (prevCount > 0) {
+            playerPixelCounts.set(previousOwner, prevCount - 1);
+        }
+    }
+
+    // Only increase count if this is a new pixel for this player
+    if (!existing || existing.playerId !== playerId) {
+        const currentCount = playerPixelCounts.get(playerId) || 0;
+        playerPixelCounts.set(playerId, currentCount + 1);
+    }
+
+    // Update paint data
+    paintData.set(key, {
+        color: player.color,
+        playerId: playerId
+    });
+
+    return { previousOwner, color: player.color };
+}
+
 // Handle new connection
 wss.on('connection', (ws) => {
     const playerId = generatePlayerId();
     const playerColor = generateRandomColor();
 
-    // Default spawn position (Seoul, Korea area)
+    // Default spawn position (Seoul, Korea area with randomness)
     const player = {
         id: playerId,
         color: playerColor,
@@ -92,6 +162,7 @@ wss.on('connection', (ws) => {
     };
 
     players.set(playerId, player);
+    playerPixelCounts.set(playerId, 0);
 
     console.log(`Player connected: ${playerId} (color: ${playerColor})`);
     console.log(`Total players: ${players.size}`);
@@ -106,7 +177,6 @@ wss.on('connection', (ws) => {
             longitude: player.longitude,
             facingAngle: player.facingAngle
         },
-        // Send all other players
         players: Array.from(players.entries())
             .filter(([id]) => id !== playerId)
             .map(([id, p]) => ({
@@ -120,12 +190,12 @@ wss.on('connection', (ws) => {
                 isJumping: p.isJumping,
                 isDrowning: p.isDrowning
             })),
-        // Send current paint data
         paintData: Array.from(paintData.entries()).map(([key, value]) => ({
             key: key,
             color: value.color,
             playerId: value.playerId
-        }))
+        })),
+        leaderboard: getLeaderboard()
     };
 
     ws.send(JSON.stringify(welcomeMessage));
@@ -146,6 +216,9 @@ wss.on('connection', (ws) => {
         }
     }, playerId);
 
+    // Broadcast updated leaderboard
+    broadcastLeaderboard();
+
     // Handle messages
     ws.on('message', (data) => {
         try {
@@ -153,7 +226,6 @@ wss.on('connection', (ws) => {
 
             switch (message.type) {
                 case 'position':
-                    // Update player position
                     if (players.has(playerId)) {
                         const p = players.get(playerId);
                         p.latitude = message.latitude;
@@ -164,7 +236,6 @@ wss.on('connection', (ws) => {
                         p.isJumping = message.isJumping || false;
                         p.isDrowning = message.isDrowning || false;
 
-                        // Broadcast position to other players
                         broadcast({
                             type: 'playerMoved',
                             playerId: playerId,
@@ -180,56 +251,59 @@ wss.on('connection', (ws) => {
                     break;
 
                 case 'paint':
-                    // Handle paint data
-                    const paintKey = `${message.x},${message.y}`;
-                    const player = players.get(playerId);
-
-                    if (player) {
-                        // Store paint data
-                        paintData.set(paintKey, {
-                            color: player.color,
-                            playerId: playerId
-                        });
-
-                        // Broadcast paint to all clients (including sender for confirmation)
+                    const result = paintPixel(message.x, message.y, playerId);
+                    if (result) {
                         broadcastAll({
                             type: 'painted',
                             x: message.x,
                             y: message.y,
-                            color: player.color,
-                            playerId: playerId
+                            color: result.color,
+                            playerId: playerId,
+                            previousOwner: result.previousOwner
                         });
+
+                        // Broadcast updated leaderboard if territory changed
+                        if (result.previousOwner) {
+                            broadcastLeaderboard();
+                        }
                     }
                     break;
 
                 case 'paintBatch':
-                    // Handle batch paint data (multiple pixels at once)
                     const batchPlayer = players.get(playerId);
-
                     if (batchPlayer && Array.isArray(message.pixels)) {
                         const paintedPixels = [];
+                        let territoryChanged = false;
 
                         message.pixels.forEach(pixel => {
-                            const key = `${pixel.x},${pixel.y}`;
-                            paintData.set(key, {
+                            const result = paintPixel(pixel.x, pixel.y, playerId);
+                            if (result) {
+                                paintedPixels.push({
+                                    x: pixel.x,
+                                    y: pixel.y,
+                                    previousOwner: result.previousOwner
+                                });
+                                if (result.previousOwner) {
+                                    territoryChanged = true;
+                                }
+                            }
+                        });
+
+                        if (paintedPixels.length > 0) {
+                            broadcastAll({
+                                type: 'paintedBatch',
+                                pixels: paintedPixels,
                                 color: batchPlayer.color,
                                 playerId: playerId
                             });
-                            paintedPixels.push({ x: pixel.x, y: pixel.y });
-                        });
 
-                        // Broadcast batch paint to all clients
-                        broadcastAll({
-                            type: 'paintedBatch',
-                            pixels: paintedPixels,
-                            color: batchPlayer.color,
-                            playerId: playerId
-                        });
+                            // Always broadcast leaderboard after batch paint
+                            broadcastLeaderboard();
+                        }
                     }
                     break;
 
                 case 'ping':
-                    // Respond to ping with pong
                     ws.send(JSON.stringify({ type: 'pong', timestamp: message.timestamp }));
                     break;
             }
@@ -241,17 +315,24 @@ wss.on('connection', (ws) => {
     // Handle disconnection
     ws.on('close', () => {
         console.log(`Player disconnected: ${playerId}`);
+
+        // Note: We keep the player's painted pixels even after disconnect
+        // They just won't appear in the leaderboard anymore
+
         players.delete(playerId);
+        playerPixelCounts.delete(playerId);
+
         console.log(`Total players: ${players.size}`);
 
-        // Notify other players
         broadcast({
             type: 'playerLeft',
             playerId: playerId
         });
+
+        // Broadcast updated leaderboard
+        broadcastLeaderboard();
     });
 
-    // Handle errors
     ws.on('error', (error) => {
         console.error(`WebSocket error for ${playerId}:`, error);
     });
@@ -260,10 +341,11 @@ wss.on('connection', (ws) => {
 // Start server
 server.listen(PORT, () => {
     console.log(`=================================`);
-    console.log(`Dingcho Earth Multiplayer Server`);
+    console.log(`Dingcho Earth - COMPETITIVE MODE`);
     console.log(`=================================`);
-    console.log(`WebSocket server running on ws://localhost:${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`WebSocket: ws://localhost:${PORT}`);
+    console.log(`Health: http://localhost:${PORT}/health`);
+    console.log(`Leaderboard: http://localhost:${PORT}/leaderboard`);
     console.log(`=================================`);
 });
 

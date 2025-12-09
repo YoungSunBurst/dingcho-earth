@@ -215,13 +215,14 @@ function calculateTotalLandPixels() {
 }
 
 // 위도/경도에 색칠
-const paintedSet = new Set(); // 이미 칠한 좌표 추적
+// 픽셀 소유권 추적: key -> { playerId, color }
+const pixelOwnership = new Map();
 const PAINT_RADIUS = 3; // 브러시 크기
 
 function paintAt(lat, lon) {
     if (!paintCanvas) return;
 
-    // 이동 불가 영역(바다)이면 칠하지 않음 - 캐릭터 이동 로직과 동일
+    // 이동 불가 영역(바다)이면 칠하지 않음
     if (!isLandAt(lat, lon)) return;
 
     // 텍스처 좌표로 변환
@@ -229,7 +230,9 @@ function paintAt(lat, lon) {
     const y = Math.floor(((90 - lat) / 180) * PAINT_HEIGHT);
 
     let painted = false;
-    paintCtx.fillStyle = playerColor.hsl;
+    const paintColor = color || playerColor.hsl;
+    const painterId = color ? null : myPlayerId; // 서버에서 온 색칠은 playerId를 별도로 받음
+    paintCtx.fillStyle = paintColor;
 
     // 브러시 크기만큼 원형으로 칠하기
     for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
@@ -239,32 +242,55 @@ function paintAt(lat, lon) {
                 const py = Math.max(0, Math.min(PAINT_HEIGHT - 1, y + dy));
 
                 const key = `${px},${py}`;
-                if (!paintedSet.has(key)) {
+                const currentOwner = pixelOwnership.get(key);
+
+                // 내가 칠하는 경우: 내 소유가 아닌 픽셀만 서버에 전송
+                // 서버에서 온 경우(color != null): 항상 그림
+                const isMyPixel = currentOwner && currentOwner.playerId === myPlayerId;
+
+                if (!isMyPixel || color) {
                     // 해당 위치가 육지인지 확인
                     if (isLandAt(px, py)) {
-                        console.log(px, py)
-                        paintedSet.add(key);
-                        paintedPixels++;
                         // 육지인 픽셀만 캔버스에 그리기
                         paintCtx.fillRect(px, py, 1, 1);
                         painted = true;
+
+                        // 서버에 페인트 데이터 전송 (내가 칠한 경우만, 내 소유가 아닐 때)
+                        if (sendToServer && multiplayerClient && !color && !isMyPixel) {
+                            multiplayerClient.sendPaint(px, py);
+                        }
+
+                        // 소유권 업데이트 (내가 칠한 경우)
+                        if (!color && painterId) {
+                            pixelOwnership.set(key, { playerId: painterId, color: paintColor });
+                        }
                     }
                 }
             }
         }
     }
 
-    // 텍스처 업데이트 (새로 칠한 픽셀이 있을 때만)
+    // 텍스처 업데이트
     if (painted && paintTexture) {
         paintTexture.needsUpdate = true;
     }
-
-    // 퍼센트 업데이트
-    updatePaintPercent();
 }
 
-function updatePaintPercent() {
-    // 리더보드에서 표시하므로 여기서는 더 이상 사용하지 않음
+// 서버에서 받은 페인트 데이터로 캔버스에 직접 그리기
+function paintPixel(x, y, color, playerId = null) {
+    if (!paintCanvas) return;
+
+    const key = `${x},${y}`;
+
+    // 소유권 업데이트
+    pixelOwnership.set(key, { playerId: playerId, color: color });
+
+    paintCtx.fillStyle = color;
+    paintCtx.fillRect(x, y, 1, 1);
+
+    if (paintTexture) {
+        paintTexture.needsUpdate = true;
+    }
 }
 
 // Create Earth
@@ -587,6 +613,209 @@ function updateCameraFollow() {
 
 // Clock for deltaTime
 const clock = new THREE.Clock();
+
+// === MULTIPLAYER FUNCTIONS ===
+
+// 리모트 플레이어 생성
+function createRemotePlayer(playerData) {
+    if (remotePlayers.has(playerData.id)) {
+        console.log(`Remote player ${playerData.id} already exists`);
+        return;
+    }
+
+    console.log(`Creating remote player: ${playerData.id} with color ${playerData.color}`);
+
+    const remoteCharacter = new Character({
+        playerId: playerData.id,
+        isRemote: true,
+        color: playerData.color
+    });
+
+    remoteCharacter.setPosition(playerData.latitude, playerData.longitude);
+    remoteCharacter.facingAngle = playerData.facingAngle || 0;
+    remoteCharacter.targetLatitude = playerData.latitude;
+    remoteCharacter.targetLongitude = playerData.longitude;
+    remoteCharacter.targetFacingAngle = playerData.facingAngle || 0;
+    remoteCharacter.landCheckFn = isLandAt;
+
+    scene.add(remoteCharacter.group);
+    remotePlayers.set(playerData.id, remoteCharacter);
+
+    updatePlayerCount();
+}
+
+// 리모트 플레이어 제거
+function removeRemotePlayer(playerId) {
+    const remoteCharacter = remotePlayers.get(playerId);
+    if (remoteCharacter) {
+        scene.remove(remoteCharacter.group);
+        remoteCharacter.dispose();
+        remotePlayers.delete(playerId);
+        console.log(`Removed remote player: ${playerId}`);
+        updatePlayerCount();
+    }
+}
+
+// 플레이어 수 업데이트
+function updatePlayerCount() {
+    const countEl = document.getElementById('player-count');
+    if (countEl) {
+        countEl.textContent = remotePlayers.size + 1; // +1 for self
+    }
+}
+
+// 리더보드 업데이트
+function updateLeaderboard(rankings) {
+    const leaderboardEl = document.getElementById('leaderboard-list');
+    if (!leaderboardEl) return;
+
+    leaderboardEl.innerHTML = '';
+
+    rankings.forEach((player, index) => {
+        const isMe = player.playerId === myPlayerId;
+        const item = document.createElement('div');
+        item.className = 'leaderboard-item' + (isMe ? ' me' : '');
+
+        const rank = document.createElement('span');
+        rank.className = 'rank';
+        rank.textContent = `#${index + 1}`;
+
+        const colorBox = document.createElement('span');
+        colorBox.className = 'color-box';
+        colorBox.style.backgroundColor = player.color;
+
+        const pixels = document.createElement('span');
+        pixels.className = 'pixels';
+        pixels.textContent = player.pixelCount.toLocaleString();
+
+        item.appendChild(rank);
+        item.appendChild(colorBox);
+        item.appendChild(pixels);
+        leaderboardEl.appendChild(item);
+    });
+}
+
+// 멀티플레이어 초기화
+function initMultiplayer() {
+    multiplayerClient = new MultiplayerClient({
+        serverUrl: WS_SERVER_URL,
+
+        onConnected: (data) => {
+            console.log('Connected to multiplayer server!');
+            myPlayerId = data.playerId;
+
+            // 서버에서 받은 색상으로 업데이트
+            playerColor = { hsl: data.color };
+            document.getElementById('player-color').style.backgroundColor = data.color;
+
+            // 연결 상태 표시
+            const statusEl = document.getElementById('connection-status');
+            if (statusEl) {
+                statusEl.textContent = 'Online';
+                statusEl.style.color = '#4caf50';
+            }
+        },
+
+        onDisconnected: () => {
+            console.log('Disconnected from server');
+            const statusEl = document.getElementById('connection-status');
+            if (statusEl) {
+                statusEl.textContent = 'Offline';
+                statusEl.style.color = '#f44336';
+            }
+        },
+
+        onInitialState: (state) => {
+            console.log('Received initial state:', state);
+
+            // 기존 플레이어들 생성
+            state.players.forEach(p => createRemotePlayer(p));
+
+            // 기존 페인트 데이터 적용
+            if (state.paintData && state.paintData.length > 0) {
+                console.log(`Applying ${state.paintData.length} paint pixels from server`);
+                state.paintData.forEach(paint => {
+                    const [x, y] = paint.key.split(',').map(Number);
+                    paintPixel(x, y, paint.color, paint.playerId);
+                });
+            }
+
+            // 초기 리더보드 설정
+            if (state.leaderboard) {
+                updateLeaderboard(state.leaderboard);
+            }
+        },
+
+        onPlayerJoined: (player) => {
+            createRemotePlayer(player);
+        },
+
+        onPlayerLeft: (playerId) => {
+            removeRemotePlayer(playerId);
+        },
+
+        onPlayerMoved: (data) => {
+            const remoteCharacter = remotePlayers.get(data.playerId);
+            if (remoteCharacter) {
+                remoteCharacter.setRemoteState(data);
+            }
+        },
+
+        onPainted: (data) => {
+            // 다른 플레이어가 칠한 경우 화면에 반영
+            if (data.playerId !== myPlayerId) {
+                paintPixel(data.x, data.y, data.color, data.playerId);
+            } else {
+                // 내가 칠한 경우에도 소유권 업데이트
+                const key = `${data.x},${data.y}`;
+                pixelOwnership.set(key, { playerId: data.playerId, color: data.color });
+            }
+        },
+
+        onPaintedBatch: (data) => {
+            // 다른 플레이어가 칠한 경우 화면에 반영
+            if (data.playerId !== myPlayerId) {
+                data.pixels.forEach(pixel => {
+                    paintPixel(pixel.x, pixel.y, data.color, data.playerId);
+                });
+            } else {
+                // 내가 칠한 경우에도 소유권 업데이트
+                data.pixels.forEach(pixel => {
+                    const key = `${pixel.x},${pixel.y}`;
+                    pixelOwnership.set(key, { playerId: data.playerId, color: data.color });
+                });
+            }
+        },
+
+        onLeaderboard: (rankings) => {
+            updateLeaderboard(rankings);
+        },
+
+        onError: (error) => {
+            console.error('Multiplayer error:', error);
+        }
+    });
+
+    // 연결 시도
+    multiplayerClient.connect();
+}
+
+// 내 위치를 서버에 전송
+function sendMyPosition() {
+    if (multiplayerClient && multiplayerClient.isConnected) {
+        multiplayerClient.sendPosition(
+            character.latitude,
+            character.longitude,
+            character.facingAngle,
+            {
+                isWalking: character.isWalking,
+                isRunning: character.isRunning,
+                isJumping: character.isJumping,
+                isDrowning: character.isDrowning
+            }
+        );
+    }
+}
 
 // Animation
 function animate() {

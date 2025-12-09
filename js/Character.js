@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 
 export class Character {
-    constructor() {
+    constructor(options = {}) {
         this.group = new THREE.Group();
         this.animationTime = 0;
         this.isWalking = false;
         this.isRunning = false;
+
+        // 플레이어 식별
+        this.playerId = options.playerId || null;
+        this.isRemote = options.isRemote || false; // 리모트 플레이어 여부
+        this.playerColor = options.color || null; // 플레이어 색상 (HSL string)
 
         // 속도 설정
         this.walkSpeed = 0.3;
@@ -39,8 +44,29 @@ export class Character {
         // 육지 체크 함수 (외부에서 설정)
         this.landCheckFn = null;
 
+        // 리모트 플레이어용 보간 (interpolation)
+        this.targetLatitude = 0;
+        this.targetLongitude = 0;
+        this.targetFacingAngle = 0;
+        this.interpolationSpeed = 10; // 보간 속도
+
         this.createCharacter();
         this.updatePositionOnEarth();
+    }
+
+    // HSL 문자열을 THREE.js 색상으로 변환
+    parseHSLColor(hslString) {
+        if (!hslString) return null;
+        const match = hslString.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+        if (match) {
+            const h = parseInt(match[1]) / 360;
+            const s = parseInt(match[2]) / 100;
+            const l = parseInt(match[3]) / 100;
+            const color = new THREE.Color();
+            color.setHSL(h, s, l);
+            return color.getHex();
+        }
+        return null;
     }
 
     createCharacter() {
@@ -49,10 +75,13 @@ export class Character {
         const cherry = 0xe63946;
         const yellow = 0xf4e285;
 
+        // 플레이어 색상이 있으면 해당 색상 사용
+        const bodyColor = this.parseHSLColor(this.playerColor) || white;
+
         // === 몸통 ===
         const bodyGeom = new THREE.SphereGeometry(0.022, 16, 16);
         bodyGeom.scale(1, 1.1, 0.9);
-        const bodyMat = new THREE.MeshToonMaterial({ color: white });
+        const bodyMat = new THREE.MeshToonMaterial({ color: bodyColor });
         this.body = new THREE.Mesh(bodyGeom, bodyMat);
         this.body.position.y = 0.025;
         this.group.add(this.body);
@@ -60,14 +89,14 @@ export class Character {
         // === 머리 ===
         const headGeom = new THREE.SphereGeometry(0.02, 16, 16);
         headGeom.scale(1.1, 1, 1);
-        const headMat = new THREE.MeshToonMaterial({ color: white });
+        const headMat = new THREE.MeshToonMaterial({ color: bodyColor });
         this.head = new THREE.Mesh(headGeom, headMat);
         this.head.position.y = 0.058;
         this.group.add(this.head);
 
         // === 귀 (왼쪽) ===
         const earGeom = new THREE.ConeGeometry(0.008, 0.018, 4);
-        const earMat = new THREE.MeshToonMaterial({ color: white });
+        const earMat = new THREE.MeshToonMaterial({ color: bodyColor });
 
         this.leftEar = new THREE.Mesh(earGeom, earMat);
         this.leftEar.position.set(-0.012, 0.075, 0);
@@ -142,7 +171,7 @@ export class Character {
 
         // === 팔 ===
         const armGeom = new THREE.CapsuleGeometry(0.005, 0.015, 4, 8);
-        const armMat = new THREE.MeshToonMaterial({ color: white });
+        const armMat = new THREE.MeshToonMaterial({ color: bodyColor });
 
         // 왼팔
         this.leftArm = new THREE.Mesh(armGeom, armMat);
@@ -157,7 +186,7 @@ export class Character {
         // === 손 ===
         const handGeom = new THREE.SphereGeometry(0.006, 8, 8);
         handGeom.scale(1, 0.6, 1);
-        const handMat = new THREE.MeshToonMaterial({ color: white });
+        const handMat = new THREE.MeshToonMaterial({ color: bodyColor });
 
         this.leftHand = new THREE.Mesh(handGeom, handMat);
         this.leftHand.position.set(-0.028, 0.012, 0);
@@ -425,5 +454,53 @@ export class Character {
         this.animateWalk(deltaTime);
         this.updateJump(deltaTime);
         this.updateDrowning(deltaTime);
+
+        // 리모트 플레이어는 보간 적용
+        if (this.isRemote) {
+            this.updateInterpolation(deltaTime);
+        }
+    }
+
+    // 리모트 플레이어용 보간 업데이트
+    updateInterpolation(deltaTime) {
+        const t = this.interpolationSpeed * deltaTime;
+
+        // 위도/경도 보간
+        this.latitude += (this.targetLatitude - this.latitude) * t;
+        this.longitude += (this.targetLongitude - this.longitude) * t;
+
+        // 방향 보간 (각도 차이 처리)
+        let angleDiff = this.targetFacingAngle - this.facingAngle;
+        // 각도 차이를 -PI ~ PI 범위로 정규화
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        this.facingAngle += angleDiff * t;
+
+        this.updatePositionOnEarth();
+    }
+
+    // 리모트 플레이어 상태 업데이트 (서버에서 받은 데이터)
+    setRemoteState(state) {
+        this.targetLatitude = state.latitude;
+        this.targetLongitude = state.longitude;
+        this.targetFacingAngle = state.facingAngle;
+        this.isWalking = state.isWalking || false;
+        this.isRunning = state.isRunning || false;
+        this.isJumping = state.isJumping || false;
+        this.isDrowning = state.isDrowning || false;
+    }
+
+    // 캐릭터 제거
+    dispose() {
+        this.group.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(m => m.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
     }
 }

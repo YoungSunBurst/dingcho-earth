@@ -228,13 +228,14 @@ function calculateTotalLandPixels() {
 }
 
 // 위도/경도에 색칠
-const paintedSet = new Set(); // 이미 칠한 좌표 추적
+// 픽셀 소유권 추적: key -> { playerId, color }
+const pixelOwnership = new Map();
 const PAINT_RADIUS = 3; // 브러시 크기
 
 function paintAt(lat, lon, color = null, sendToServer = true) {
     if (!paintCanvas) return;
 
-    // 이동 불가 영역(바다)이면 칠하지 않음 - 캐릭터 이동 로직과 동일
+    // 이동 불가 영역(바다)이면 칠하지 않음
     if (!isLandAt(lat, lon)) return;
 
     // 텍스처 좌표로 변환
@@ -243,6 +244,7 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
 
     let painted = false;
     const paintColor = color || playerColor.hsl;
+    const painterId = color ? null : myPlayerId; // 서버에서 온 색칠은 playerId를 별도로 받음
     paintCtx.fillStyle = paintColor;
 
     // 브러시 크기만큼 원형으로 칠하기
@@ -253,21 +255,27 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
                 const py = Math.max(0, Math.min(PAINT_HEIGHT - 1, y + dy));
 
                 const key = `${px},${py}`;
-                // 멀티플레이어에서는 다른 플레이어가 덮어쓸 수 있으므로 항상 그림
-                if (!paintedSet.has(key) || color) {
+                const currentOwner = pixelOwnership.get(key);
+
+                // 내가 칠하는 경우: 내 소유가 아닌 픽셀만 서버에 전송
+                // 서버에서 온 경우(color != null): 항상 그림
+                const isMyPixel = currentOwner && currentOwner.playerId === myPlayerId;
+
+                if (!isMyPixel || color) {
                     // 해당 위치가 육지인지 확인
                     if (isLandAt(px, py)) {
-                        if (!paintedSet.has(key)) {
-                            paintedSet.add(key);
-                            paintedPixels++;
-                        }
                         // 육지인 픽셀만 캔버스에 그리기
                         paintCtx.fillRect(px, py, 1, 1);
                         painted = true;
 
-                        // 서버에 페인트 데이터 전송 (내가 칠한 경우만)
-                        if (sendToServer && multiplayerClient && !color) {
+                        // 서버에 페인트 데이터 전송 (내가 칠한 경우만, 내 소유가 아닐 때)
+                        if (sendToServer && multiplayerClient && !color && !isMyPixel) {
                             multiplayerClient.sendPaint(px, py);
+                        }
+
+                        // 소유권 업데이트 (내가 칠한 경우)
+                        if (!color && painterId) {
+                            pixelOwnership.set(key, { playerId: painterId, color: paintColor });
                         }
                     }
                 }
@@ -275,24 +283,20 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
         }
     }
 
-    // 텍스처 업데이트 (새로 칠한 픽셀이 있을 때만)
+    // 텍스처 업데이트
     if (painted && paintTexture) {
         paintTexture.needsUpdate = true;
     }
-
-    // 퍼센트 업데이트
-    updatePaintPercent();
 }
 
 // 서버에서 받은 페인트 데이터로 캔버스에 직접 그리기
-function paintPixel(x, y, color) {
+function paintPixel(x, y, color, playerId = null) {
     if (!paintCanvas) return;
 
     const key = `${x},${y}`;
-    if (!paintedSet.has(key)) {
-        paintedSet.add(key);
-        paintedPixels++;
-    }
+
+    // 소유권 업데이트
+    pixelOwnership.set(key, { playerId: playerId, color: color });
 
     paintCtx.fillStyle = color;
     paintCtx.fillRect(x, y, 1, 1);
@@ -300,11 +304,6 @@ function paintPixel(x, y, color) {
     if (paintTexture) {
         paintTexture.needsUpdate = true;
     }
-    updatePaintPercent();
-}
-
-function updatePaintPercent() {
-    // 리더보드에서 표시하므로 여기서는 더 이상 사용하지 않음
 }
 
 // Create Earth
@@ -750,7 +749,7 @@ function initMultiplayer() {
                 console.log(`Applying ${state.paintData.length} paint pixels from server`);
                 state.paintData.forEach(paint => {
                     const [x, y] = paint.key.split(',').map(Number);
-                    paintPixel(x, y, paint.color);
+                    paintPixel(x, y, paint.color, paint.playerId);
                 });
             }
 
@@ -776,17 +775,27 @@ function initMultiplayer() {
         },
 
         onPainted: (data) => {
-            // 다른 플레이어가 칠한 경우에만 처리
+            // 다른 플레이어가 칠한 경우 화면에 반영
             if (data.playerId !== myPlayerId) {
-                paintPixel(data.x, data.y, data.color);
+                paintPixel(data.x, data.y, data.color, data.playerId);
+            } else {
+                // 내가 칠한 경우에도 소유권 업데이트
+                const key = `${data.x},${data.y}`;
+                pixelOwnership.set(key, { playerId: data.playerId, color: data.color });
             }
         },
 
         onPaintedBatch: (data) => {
-            // 다른 플레이어가 칠한 경우에만 처리
+            // 다른 플레이어가 칠한 경우 화면에 반영
             if (data.playerId !== myPlayerId) {
                 data.pixels.forEach(pixel => {
-                    paintPixel(pixel.x, pixel.y, data.color);
+                    paintPixel(pixel.x, pixel.y, data.color, data.playerId);
+                });
+            } else {
+                // 내가 칠한 경우에도 소유권 업데이트
+                data.pixels.forEach(pixel => {
+                    const key = `${pixel.x},${pixel.y}`;
+                    pixelOwnership.set(key, { playerId: data.playerId, color: data.color });
                 });
             }
         },

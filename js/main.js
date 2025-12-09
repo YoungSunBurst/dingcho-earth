@@ -264,10 +264,7 @@ function paintAt(lat, lon) {
 }
 
 function updatePaintPercent() {
-    if (totalLandPixels === 0) return;
-
-    const percent = (paintedPixels / totalLandPixels) * 100;
-    document.getElementById('paint-percent').textContent = percent.toFixed(2) + '%';
+    // 리더보드에서 표시하므로 여기서는 더 이상 사용하지 않음
 }
 
 // Create Earth

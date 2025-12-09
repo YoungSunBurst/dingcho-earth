@@ -77,6 +77,29 @@
             font-size: 18px;
             font-weight: bold;
         }
+
+        #multiplayer-status {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 14px;
+            background: rgba(0,0,0,0.6);
+            padding: 12px 16px;
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
+        }
+
+        #connection-status {
+            font-weight: bold;
+            color: #ff9800;
+        }
+
+        #player-count {
+            font-weight: bold;
+            color: #4fc3f7;
+        }
     </style>
 </head>
 <body>
@@ -84,6 +107,14 @@
     <div id="canvas-container"></div>
     <div id="info">
         Drag to rotate | Scroll to zoom
+    </div>
+    <div id="multiplayer-status">
+        <div style="margin-bottom: 8px;">
+            Server: <span id="connection-status">Connecting...</span>
+        </div>
+        <div>
+            Players: <span id="player-count">1</span>
+        </div>
     </div>
     <div id="paint-stats">
         <div id="player-color"></div>

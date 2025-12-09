@@ -1,6 +1,18 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Character } from './Character.js';
+import { MultiplayerClient } from './multiplayer.js';
+
+// === MULTIPLAYER ===
+// 서버 URL 설정 (로컬 개발 또는 프로덕션)
+const WS_SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'ws://localhost:3001'
+    : `wss://${window.location.hostname}:3001`;
+
+// 리모트 플레이어 저장소
+const remotePlayers = new Map();
+let multiplayerClient = null;
+let myPlayerId = null;
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -162,7 +174,8 @@ function hslToRgb(h, s, l) {
     };
 }
 
-const playerColor = generateRandomColor();
+// 플레이어 색상 (서버에서 할당받음)
+let playerColor = generateRandomColor(); // 기본값 (오프라인 모드용)
 document.getElementById('player-color').style.backgroundColor = playerColor.hsl;
 
 // 페인트 캔버스 (지구 텍스처와 동일한 크기)
@@ -218,7 +231,7 @@ function calculateTotalLandPixels() {
 const paintedSet = new Set(); // 이미 칠한 좌표 추적
 const PAINT_RADIUS = 3; // 브러시 크기
 
-function paintAt(lat, lon) {
+function paintAt(lat, lon, color = null, sendToServer = true) {
     if (!paintCanvas) return;
 
     // 이동 불가 영역(바다)이면 칠하지 않음 - 캐릭터 이동 로직과 동일
@@ -229,7 +242,8 @@ function paintAt(lat, lon) {
     const y = Math.floor(((90 - lat) / 180) * PAINT_HEIGHT);
 
     let painted = false;
-    paintCtx.fillStyle = playerColor.hsl;
+    const paintColor = color || playerColor.hsl;
+    paintCtx.fillStyle = paintColor;
 
     // 브러시 크기만큼 원형으로 칠하기
     for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
@@ -239,15 +253,22 @@ function paintAt(lat, lon) {
                 const py = Math.max(0, Math.min(PAINT_HEIGHT - 1, y + dy));
 
                 const key = `${px},${py}`;
-                if (!paintedSet.has(key)) {
+                // 멀티플레이어에서는 다른 플레이어가 덮어쓸 수 있으므로 항상 그림
+                if (!paintedSet.has(key) || color) {
                     // 해당 위치가 육지인지 확인
                     if (isLandAt(px, py)) {
-                        console.log(px, py)
-                        paintedSet.add(key);
-                        paintedPixels++;
+                        if (!paintedSet.has(key)) {
+                            paintedSet.add(key);
+                            paintedPixels++;
+                        }
                         // 육지인 픽셀만 캔버스에 그리기
                         paintCtx.fillRect(px, py, 1, 1);
                         painted = true;
+
+                        // 서버에 페인트 데이터 전송 (내가 칠한 경우만)
+                        if (sendToServer && multiplayerClient && !color) {
+                            multiplayerClient.sendPaint(px, py);
+                        }
                     }
                 }
             }
@@ -260,6 +281,25 @@ function paintAt(lat, lon) {
     }
 
     // 퍼센트 업데이트
+    updatePaintPercent();
+}
+
+// 서버에서 받은 페인트 데이터로 캔버스에 직접 그리기
+function paintPixel(x, y, color) {
+    if (!paintCanvas) return;
+
+    const key = `${x},${y}`;
+    if (!paintedSet.has(key)) {
+        paintedSet.add(key);
+        paintedPixels++;
+    }
+
+    paintCtx.fillStyle = color;
+    paintCtx.fillRect(x, y, 1, 1);
+
+    if (paintTexture) {
+        paintTexture.needsUpdate = true;
+    }
     updatePaintPercent();
 }
 
@@ -591,6 +631,159 @@ function updateCameraFollow() {
 // Clock for deltaTime
 const clock = new THREE.Clock();
 
+// === MULTIPLAYER FUNCTIONS ===
+
+// 리모트 플레이어 생성
+function createRemotePlayer(playerData) {
+    if (remotePlayers.has(playerData.id)) {
+        console.log(`Remote player ${playerData.id} already exists`);
+        return;
+    }
+
+    console.log(`Creating remote player: ${playerData.id} with color ${playerData.color}`);
+
+    const remoteCharacter = new Character({
+        playerId: playerData.id,
+        isRemote: true,
+        color: playerData.color
+    });
+
+    remoteCharacter.setPosition(playerData.latitude, playerData.longitude);
+    remoteCharacter.facingAngle = playerData.facingAngle || 0;
+    remoteCharacter.targetLatitude = playerData.latitude;
+    remoteCharacter.targetLongitude = playerData.longitude;
+    remoteCharacter.targetFacingAngle = playerData.facingAngle || 0;
+    remoteCharacter.landCheckFn = isLandAt;
+
+    scene.add(remoteCharacter.group);
+    remotePlayers.set(playerData.id, remoteCharacter);
+
+    updatePlayerCount();
+}
+
+// 리모트 플레이어 제거
+function removeRemotePlayer(playerId) {
+    const remoteCharacter = remotePlayers.get(playerId);
+    if (remoteCharacter) {
+        scene.remove(remoteCharacter.group);
+        remoteCharacter.dispose();
+        remotePlayers.delete(playerId);
+        console.log(`Removed remote player: ${playerId}`);
+        updatePlayerCount();
+    }
+}
+
+// 플레이어 수 업데이트
+function updatePlayerCount() {
+    const countEl = document.getElementById('player-count');
+    if (countEl) {
+        countEl.textContent = remotePlayers.size + 1; // +1 for self
+    }
+}
+
+// 멀티플레이어 초기화
+function initMultiplayer() {
+    multiplayerClient = new MultiplayerClient({
+        serverUrl: WS_SERVER_URL,
+
+        onConnected: (data) => {
+            console.log('Connected to multiplayer server!');
+            myPlayerId = data.playerId;
+
+            // 서버에서 받은 색상으로 업데이트
+            playerColor = { hsl: data.color };
+            document.getElementById('player-color').style.backgroundColor = data.color;
+
+            // 연결 상태 표시
+            const statusEl = document.getElementById('connection-status');
+            if (statusEl) {
+                statusEl.textContent = 'Online';
+                statusEl.style.color = '#4caf50';
+            }
+        },
+
+        onDisconnected: () => {
+            console.log('Disconnected from server');
+            const statusEl = document.getElementById('connection-status');
+            if (statusEl) {
+                statusEl.textContent = 'Offline';
+                statusEl.style.color = '#f44336';
+            }
+        },
+
+        onInitialState: (state) => {
+            console.log('Received initial state:', state);
+
+            // 기존 플레이어들 생성
+            state.players.forEach(p => createRemotePlayer(p));
+
+            // 기존 페인트 데이터 적용
+            if (state.paintData && state.paintData.length > 0) {
+                console.log(`Applying ${state.paintData.length} paint pixels from server`);
+                state.paintData.forEach(paint => {
+                    const [x, y] = paint.key.split(',').map(Number);
+                    paintPixel(x, y, paint.color);
+                });
+            }
+        },
+
+        onPlayerJoined: (player) => {
+            createRemotePlayer(player);
+        },
+
+        onPlayerLeft: (playerId) => {
+            removeRemotePlayer(playerId);
+        },
+
+        onPlayerMoved: (data) => {
+            const remoteCharacter = remotePlayers.get(data.playerId);
+            if (remoteCharacter) {
+                remoteCharacter.setRemoteState(data);
+            }
+        },
+
+        onPainted: (data) => {
+            // 다른 플레이어가 칠한 경우에만 처리
+            if (data.playerId !== myPlayerId) {
+                paintPixel(data.x, data.y, data.color);
+            }
+        },
+
+        onPaintedBatch: (data) => {
+            // 다른 플레이어가 칠한 경우에만 처리
+            if (data.playerId !== myPlayerId) {
+                data.pixels.forEach(pixel => {
+                    paintPixel(pixel.x, pixel.y, data.color);
+                });
+            }
+        },
+
+        onError: (error) => {
+            console.error('Multiplayer error:', error);
+        }
+    });
+
+    // 연결 시도
+    multiplayerClient.connect();
+}
+
+// 내 위치를 서버에 전송
+function sendMyPosition() {
+    if (multiplayerClient && multiplayerClient.isConnected) {
+        multiplayerClient.sendPosition(
+            character.latitude,
+            character.longitude,
+            character.facingAngle,
+            {
+                isWalking: character.isWalking,
+                isRunning: character.isRunning,
+                isJumping: character.isJumping,
+                isDrowning: character.isDrowning
+            }
+        );
+    }
+}
+
 // Animation
 function animate() {
     requestAnimationFrame(animate);
@@ -603,10 +796,18 @@ function animate() {
     // Update character animation
     character.update(deltaTime);
 
+    // 리모트 플레이어들 업데이트
+    remotePlayers.forEach(remoteChar => {
+        remoteChar.update(deltaTime);
+    });
+
     // 캐릭터가 걷고 있고 물에 빠지지 않았으면 현재 위치에 색칠
     if (character.isWalking && !character.isDrowning) {
         paintAt(character.latitude, character.longitude);
     }
+
+    // 내 위치를 서버에 전송
+    sendMyPosition();
 
     // Slow Earth rotation (disabled when character is on it)
     // earth.rotation.y += 0.0005;
@@ -632,8 +833,11 @@ window.addEventListener('resize', () => {
 // Initialize info text
 updateInfoText();
 
+// Initialize multiplayer
+initMultiplayer();
+
 // Start animation
 animate();
 
 // Export for debugging
-export { scene, earth, camera, renderer, character };
+export { scene, earth, camera, renderer, character, remotePlayers, multiplayerClient };

@@ -303,6 +303,58 @@ wss.on('connection', (ws) => {
                     }
                     break;
 
+                case 'fillArea':
+                    // Handle territory fill (closed area)
+                    const fillPlayer = players.get(playerId);
+                    if (fillPlayer && Array.isArray(message.pixels)) {
+                        const filledPixels = [];
+
+                        message.pixels.forEach(pixel => {
+                            const key = `${pixel.x},${pixel.y}`;
+                            const existing = paintData.get(key);
+                            let previousOwner = null;
+
+                            // If pixel was owned by another player, decrease their count
+                            if (existing && existing.playerId !== playerId) {
+                                previousOwner = existing.playerId;
+                                const prevCount = playerPixelCounts.get(previousOwner) || 0;
+                                if (prevCount > 0) {
+                                    playerPixelCounts.set(previousOwner, prevCount - 1);
+                                }
+                            }
+
+                            // Only increase count if this is a new pixel for this player
+                            if (!existing || existing.playerId !== playerId) {
+                                const currentCount = playerPixelCounts.get(playerId) || 0;
+                                playerPixelCounts.set(playerId, currentCount + 1);
+                            }
+
+                            // Update paint data
+                            paintData.set(key, {
+                                color: fillPlayer.color,
+                                playerId: playerId
+                            });
+
+                            filledPixels.push({ x: pixel.x, y: pixel.y });
+                        });
+
+                        if (filledPixels.length > 0) {
+                            console.log(`Player ${playerId} filled ${filledPixels.length} pixels`);
+
+                            // Broadcast fill to all clients
+                            broadcastAll({
+                                type: 'areaFilled',
+                                pixels: filledPixels,
+                                color: fillPlayer.color,
+                                playerId: playerId
+                            });
+
+                            // Update leaderboard
+                            broadcastLeaderboard();
+                        }
+                    }
+                    break;
+
                 case 'ping':
                     ws.send(JSON.stringify({ type: 'pong', timestamp: message.timestamp }));
                     break;

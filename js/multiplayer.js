@@ -24,8 +24,9 @@ export class MultiplayerClient {
         this.onPlayerMoved = options.onPlayerMoved || (() => {});
         this.onPainted = options.onPainted || (() => {});
         this.onPaintedBatch = options.onPaintedBatch || (() => {});
+        this.onAreaFilled = options.onAreaFilled || (() => {}); // Territory fill callback
         this.onInitialState = options.onInitialState || (() => {});
-        this.onLeaderboard = options.onLeaderboard || (() => {}); // NEW: Leaderboard callback
+        this.onLeaderboard = options.onLeaderboard || (() => {});
         this.onError = options.onError || (() => {});
 
         // Position update throttling
@@ -147,6 +148,14 @@ export class MultiplayerClient {
 
                 case 'paintedBatch':
                     this.onPaintedBatch({
+                        pixels: message.pixels,
+                        color: message.color,
+                        playerId: message.playerId
+                    });
+                    break;
+
+                case 'areaFilled':
+                    this.onAreaFilled({
                         pixels: message.pixels,
                         color: message.color,
                         playerId: message.playerId

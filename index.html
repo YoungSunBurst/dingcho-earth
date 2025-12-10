@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dingcho Earth - Territory Battle!</title>
+    <title>3D Earth - Character Walk</title>
     <style>
         * {
             margin: 0;
@@ -50,88 +50,10 @@
             color: #4fc3f7;
         }
 
-        /* 리더보드 (오른쪽 위) */
-        #leaderboard {
+        #paint-stats {
             position: fixed;
             top: 20px;
             right: 20px;
-            color: white;
-            font-family: 'Segoe UI', sans-serif;
-            font-size: 14px;
-            background: rgba(0,0,0,0.7);
-            padding: 16px;
-            border-radius: 8px;
-            backdrop-filter: blur(4px);
-            min-width: 180px;
-        }
-
-        #leaderboard-title {
-            font-size: 16px;
-            font-weight: bold;
-            margin-bottom: 12px;
-            color: #ffd700;
-            text-align: center;
-            border-bottom: 1px solid rgba(255,255,255,0.2);
-            padding-bottom: 8px;
-        }
-
-        #leaderboard-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .leaderboard-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 6px 8px;
-            border-radius: 4px;
-            background: rgba(255,255,255,0.05);
-        }
-
-        .leaderboard-item.me {
-            background: rgba(79, 195, 247, 0.2);
-            border: 1px solid rgba(79, 195, 247, 0.5);
-        }
-
-        .leaderboard-item .rank {
-            font-weight: bold;
-            min-width: 30px;
-            color: #aaa;
-        }
-
-        .leaderboard-item:nth-child(1) .rank {
-            color: #ffd700;
-        }
-
-        .leaderboard-item:nth-child(2) .rank {
-            color: #c0c0c0;
-        }
-
-        .leaderboard-item:nth-child(3) .rank {
-            color: #cd7f32;
-        }
-
-        .leaderboard-item .color-box {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            border: 2px solid white;
-            flex-shrink: 0;
-        }
-
-        .leaderboard-item .pixels {
-            font-weight: bold;
-            margin-left: auto;
-            color: #4fc3f7;
-        }
-
-        /* 연결 상태 (왼쪽 위) */
-        #multiplayer-status {
-            position: fixed;
-            top: 20px;
-            left: 20px;
             color: white;
             font-family: 'Segoe UI', sans-serif;
             font-size: 14px;
@@ -139,33 +61,21 @@
             padding: 12px 16px;
             border-radius: 8px;
             backdrop-filter: blur(4px);
-        }
-
-        #connection-status {
-            font-weight: bold;
-            color: #ff9800;
-        }
-
-        #player-count {
-            font-weight: bold;
-            color: #4fc3f7;
-        }
-
-        /* 내 색상 표시 */
-        #my-color-display {
             display: flex;
             align-items: center;
-            gap: 8px;
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid rgba(255,255,255,0.2);
+            gap: 12px;
         }
 
         #player-color {
-            width: 20px;
-            height: 20px;
+            width: 24px;
+            height: 24px;
             border-radius: 4px;
             border: 2px solid white;
+        }
+
+        #paint-percent {
+            font-size: 18px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -175,26 +85,11 @@
     <div id="info">
         Drag to rotate | Scroll to zoom
     </div>
-
-    <!-- 연결 상태 (왼쪽 위) -->
-    <div id="multiplayer-status">
-        <div style="margin-bottom: 8px;">
-            Server: <span id="connection-status">Connecting...</span>
-        </div>
+    <div id="paint-stats">
+        <div id="player-color"></div>
         <div>
-            Players: <span id="player-count">1</span>
-        </div>
-        <div id="my-color-display">
-            <span>My Color:</span>
-            <div id="player-color"></div>
-        </div>
-    </div>
-
-    <!-- 리더보드 (오른쪽 위) -->
-    <div id="leaderboard">
-        <div id="leaderboard-title">🏆 RANKING</div>
-        <div id="leaderboard-list">
-            <!-- 동적으로 생성됨 -->
+            <div style="font-size: 12px; opacity: 0.8;">Land Painted</div>
+            <div id="paint-percent">0.00%</div>
         </div>
     </div>
 

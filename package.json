@@ -1,11 +1,14 @@
 {
   "name": "digncho-earth",
   "version": "1.0.0",
-  "description": "3D Earth with walking character using Three.js",
+  "description": "3D Earth with walking character using Three.js - Multiplayer Edition",
   "scripts": {
     "dev": "npx serve .",
-    "start": "npx http-server -p 8080 -c-1"
+    "start": "npx http-server -p 8080 -c-1",
+    "server": "node server/index.js",
+    "server:install": "cd server && npm install",
+    "dev:full": "npm run server & npm run dev"
   },
-  "keywords": ["three.js", "earth", "3d", "webgl"],
+  "keywords": ["three.js", "earth", "3d", "webgl", "multiplayer", "websocket"],
   "license": "MIT"
 }

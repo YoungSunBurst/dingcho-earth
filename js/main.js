@@ -237,6 +237,7 @@ const PAINT_RADIUS = 3; // 브러시 크기
 let playerTrail = []; // [{x, y}, ...]
 let isTrailActive = false; // 경로 추적 중인지
 const MIN_TRAIL_LENGTH = 20; // 최소 경로 길이 (너무 작은 영역 방지)
+let trailStartedFromTerritory = false; // trail이 확정 영역에서 시작되었는지
 
 // 현재 픽셀이 자신의 확정된 영역에 인접한지 확인
 function isAdjacentToMyTerritory(x, y) {
@@ -257,6 +258,42 @@ function isAdjacentToMyTerritory(x, y) {
         }
     }
     return false;
+}
+
+// Trail 무결성 검사: 다른 플레이어가 trail을 끊었는지 확인
+function checkTrailIntegrity() {
+    if (playerTrail.length === 0) return true;
+
+    // Trail의 각 픽셀이 여전히 내 것인지 (또는 비어있는지) 확인
+    // 연속성도 확인 (중간에 끊긴 곳이 있는지)
+    let lastValid = null;
+    let brokenCount = 0;
+
+    for (let i = 0; i < playerTrail.length; i++) {
+        const p = playerTrail[i];
+        const key = `${p.x},${p.y}`;
+        const owner = pixelOwnership.get(key);
+
+        // 다른 플레이어가 이 픽셀을 소유하고 있으면 trail이 끊긴 것
+        if (owner && owner.playerId !== myPlayerId) {
+            brokenCount++;
+            // 연속으로 5개 이상 끊기면 trail 무효
+            if (brokenCount >= 5) {
+                return false;
+            }
+        } else {
+            brokenCount = 0;
+        }
+    }
+
+    return true;
+}
+
+// Trail 초기화
+function resetTrail() {
+    playerTrail = [];
+    isTrailActive = false;
+    trailStartedFromTerritory = false;
 }
 
 // Flood Fill 알고리즘 (Scanline 방식 - 성능 최적화)
@@ -312,7 +349,25 @@ function floodFill(startX, startY, playerId, color) {
 function tryFillEnclosedArea() {
     if (playerTrail.length < MIN_TRAIL_LENGTH) return;
 
-    // Trail의 중심점 계산
+    // Trail 무결성 검사: 다른 플레이어가 끊었으면 채우지 않음
+    if (!checkTrailIntegrity()) {
+        console.log('Trail broken by another player - not filling');
+        resetTrail();
+        return;
+    }
+
+    // Trail이 확정 영역에서 시작하지 않았으면 채우지 않음
+    if (!trailStartedFromTerritory) {
+        console.log('Trail did not start from territory - not filling');
+        // Trail을 확정 영역으로 변환 (채우기는 안 함)
+        confirmTrailPixels();
+        resetTrail();
+        return;
+    }
+
+    // Trail의 끝점도 확정 영역에 인접해야 함 (이미 확인됨, 호출 조건)
+
+    // Trail의 중심점 계산 (fillable area를 찾기 위한 시드 포인트)
     let sumX = 0, sumY = 0;
     playerTrail.forEach(p => {
         sumX += p.x;
@@ -349,6 +404,14 @@ function tryFillEnclosedArea() {
     }
 
     // Trail을 확정된 영역으로 변환
+    confirmTrailPixels();
+
+    // Trail 초기화
+    resetTrail();
+}
+
+// Trail 픽셀들을 확정 영역으로 변환
+function confirmTrailPixels() {
     playerTrail.forEach(p => {
         const key = `${p.x},${p.y}`;
         const existing = pixelOwnership.get(key);
@@ -356,10 +419,6 @@ function tryFillEnclosedArea() {
             existing.confirmed = true;
         }
     });
-
-    // Trail 초기화
-    playerTrail = [];
-    isTrailActive = false;
 }
 
 function paintAt(lat, lon, color = null, sendToServer = true) {
@@ -380,6 +439,7 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
     // 내가 칠하는 경우에만 경로 추적
     const isMyPainting = !color && painterId;
     let touchedMyTerritory = false;
+    let startedAdjacentToTerritory = false;
 
     // 브러시 크기만큼 원형으로 칠하기
     for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
@@ -397,6 +457,11 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
                 // 내가 칠하는 경우: 확정된 영역에 닿았는지 확인
                 if (isMyPainting && isMyConfirmedPixel && isTrailActive) {
                     touchedMyTerritory = true;
+                }
+
+                // Trail 시작 시 확정 영역에 인접한지 확인
+                if (isMyPainting && !isTrailActive && isAdjacentToMyTerritory(px, py)) {
+                    startedAdjacentToTerritory = true;
                 }
 
                 if (!isMyPixel || color) {
@@ -418,6 +483,8 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
                             // Trail 시작
                             if (!isTrailActive && playerTrail.length > 1) {
                                 isTrailActive = true;
+                                // Trail 시작 시 확정 영역에서 시작되었는지 기록
+                                trailStartedFromTerritory = startedAdjacentToTerritory;
                             }
                         }
                     }

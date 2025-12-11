@@ -233,10 +233,6 @@ const pixelOwnership = new Map();
 const PAINT_RADIUS = 3; // 브러시 크기
 
 // === 영역 채우기 시스템 (영역 기반) ===
-// 이전 위치가 내 영역이었는지 추적
-let wasInMyTerritory = false;
-let lastPaintX = -1;
-let lastPaintY = -1;
 
 // 현재 픽셀이 내 영역인지 확인
 function isMyTerritory(x, y) {
@@ -361,15 +357,13 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
     const y = Math.floor(((90 - lat) / 180) * PAINT_HEIGHT);
 
     let painted = false;
+    let paintedAdjacentToMyTerritory = false; // 내 영역에 인접한 새 픽셀을 칠했는지
     const paintColor = color || playerColor.hsl;
     const painterId = color ? null : myPlayerId;
     paintCtx.fillStyle = paintColor;
 
-    // 내가 칠하는 경우에만 영역 진입 감지
+    // 내가 칠하는 경우에만 영역 감지
     const isMyPainting = !color && painterId;
-
-    // 현재 중심 위치가 내 영역인지 확인
-    const currentlyInMyTerritory = isMyTerritory(x, y);
 
     // 브러시 크기만큼 원형으로 칠하기
     for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
@@ -385,6 +379,11 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
 
                 if (!isMyPixel || color) {
                     if (isLandAtXY(px, py)) {
+                        // 내가 칠하는 경우: 이 픽셀이 기존 내 영역에 인접한지 확인 (칠하기 전에)
+                        if (isMyPainting && !isMyPixel && isAdjacentToMyTerritory(px, py)) {
+                            paintedAdjacentToMyTerritory = true;
+                        }
+
                         paintCtx.fillRect(px, py, 1, 1);
                         painted = true;
 
@@ -402,23 +401,32 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
         }
     }
 
-    // 내가 칠하는 경우: 이전에 내 영역 밖에 있다가 내 영역으로 진입했으면 닫힌 영역 확인
-    if (isMyPainting && !wasInMyTerritory && currentlyInMyTerritory) {
-        // 내 영역으로 진입함 - 닫힌 영역 확인 및 채우기
+    // 내가 칠하는 경우: 기존 영역에 인접한 새 픽셀을 칠했으면 닫힌 영역 확인
+    if (isMyPainting && paintedAdjacentToMyTerritory) {
         tryFillEnclosedAreas(x, y);
-    }
-
-    // 상태 업데이트
-    if (isMyPainting) {
-        wasInMyTerritory = currentlyInMyTerritory;
-        lastPaintX = x;
-        lastPaintY = y;
     }
 
     // 텍스처 업데이트
     if (painted && paintTexture) {
         paintTexture.needsUpdate = true;
     }
+}
+
+// 현재 픽셀이 내 영역에 인접한지 확인
+function isAdjacentToMyTerritory(x, y) {
+    const directions = [
+        [-1, 0], [1, 0], [0, -1], [0, 1],
+        [-1, -1], [-1, 1], [1, -1], [1, 1]
+    ];
+
+    for (const [dx, dy] of directions) {
+        const nx = (x + dx + PAINT_WIDTH) % PAINT_WIDTH;
+        const ny = Math.max(0, Math.min(PAINT_HEIGHT - 1, y + dy));
+        if (isMyTerritory(nx, ny)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // 서버에서 받은 페인트 데이터로 캔버스에 직접 그리기

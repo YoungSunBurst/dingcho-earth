@@ -614,36 +614,36 @@ initCameraPosition();
 updateLoading();
 
 // === KEYBOARD CONTROLS ===
+// e.code 기반으로 키 상태 관리 (한글 입력 모드에서도 동작하도록)
 const keys = {
-    w: false,
-    a: false,
-    s: false,
-    d: false,
+    KeyW: false,
+    KeyA: false,
+    KeyS: false,
+    KeyD: false,
     ArrowUp: false,
     ArrowDown: false,
     ArrowLeft: false,
     ArrowRight: false,
-    shift: false,
-    space: false
+    ShiftLeft: false,
+    ShiftRight: false,
+    Space: false
 };
 
 document.addEventListener('keydown', (e) => {
-    const key = e.key.toLowerCase();
-    if (key in keys) keys[key] = true;
-    if (e.key in keys) keys[e.key] = true;
-    if (e.key === 'Shift') keys.shift = true;
-    if (e.key === ' ') {
-        keys.space = true;
+    // e.code를 사용하여 물리적 키 위치 기반으로 감지 (한글 입력 모드에서도 동작)
+    if (e.code in keys) {
+        keys[e.code] = true;
+    }
+    if (e.code === 'Space') {
         e.preventDefault(); // 페이지 스크롤 방지
     }
 });
 
 document.addEventListener('keyup', (e) => {
-    const key = e.key.toLowerCase();
-    if (key in keys) keys[key] = false;
-    if (e.key in keys) keys[e.key] = false;
-    if (e.key === 'Shift') keys.shift = false;
-    if (e.key === ' ') keys.space = false;
+    // e.code를 사용하여 물리적 키 위치 기반으로 감지 (한글 입력 모드에서도 동작)
+    if (e.code in keys) {
+        keys[e.code] = false;
+    }
 });
 
 function handleInput(deltaTime) {
@@ -655,31 +655,31 @@ function handleInput(deltaTime) {
 
     let isMoving = false;
 
-    // Shift: 달리기 모드
-    character.setRunning(keys.shift);
+    // Shift: 달리기 모드 (좌/우 Shift 모두 지원)
+    character.setRunning(keys.ShiftLeft || keys.ShiftRight);
 
     // Space: 점프
-    if (keys.space) {
+    if (keys.Space) {
         character.jump();
     }
 
     // W / ↑: 앞으로 이동
-    if (keys.w || keys.ArrowUp) {
+    if (keys.KeyW || keys.ArrowUp) {
         character.moveForward(deltaTime);
         isMoving = true;
     }
     // S / ↓: 뒤돌아보기
-    if (keys.s || keys.ArrowDown) {
+    if (keys.KeyS || keys.ArrowDown) {
         character.turnAround(deltaTime);
         isMoving = true;
     }
     // A / ←: 왼쪽으로 회전
-    if (keys.a || keys.ArrowLeft) {
+    if (keys.KeyA || keys.ArrowLeft) {
         character.turnLeft(deltaTime);
         isMoving = true;
     }
     // D / →: 오른쪽으로 회전
-    if (keys.d || keys.ArrowRight) {
+    if (keys.KeyD || keys.ArrowRight) {
         character.turnRight(deltaTime);
         isMoving = true;
     }
@@ -695,7 +695,8 @@ const followDistance = 0.3;
 const followHeight = 0.15;
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'f' || e.key === 'F') {
+    // e.code를 사용하여 한글 입력 모드에서도 카메라 전환 가능
+    if (e.code === 'KeyF') {
         // F: 버드뷰 (위에서 내려다보기)
         if (cameraMode === 'bird') {
             cameraMode = 'free';
@@ -706,7 +707,7 @@ document.addEventListener('keydown', (e) => {
         }
         updateInfoText();
     }
-    if (e.key === 'v' || e.key === 'V') {
+    if (e.code === 'KeyV') {
         // V: 정면뷰 (캐릭터 뒤에서 앞쪽 바라보기)
         if (cameraMode === 'front') {
             cameraMode = 'free';

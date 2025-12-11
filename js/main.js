@@ -232,193 +232,122 @@ function calculateTotalLandPixels() {
 const pixelOwnership = new Map();
 const PAINT_RADIUS = 3; // 브러시 크기
 
-// === 영역 채우기 시스템 ===
-// 플레이어 경로 추적 (trail): 아직 확정되지 않은 경로
-let playerTrail = []; // [{x, y}, ...]
-let isTrailActive = false; // 경로 추적 중인지
-const MIN_TRAIL_LENGTH = 20; // 최소 경로 길이 (너무 작은 영역 방지)
-let trailStartedFromTerritory = false; // trail이 확정 영역에서 시작되었는지
+// === 영역 채우기 시스템 (영역 기반) ===
+// 이전 위치가 내 영역이었는지 추적
+let wasInMyTerritory = false;
+let lastPaintX = -1;
+let lastPaintY = -1;
 
-// 현재 픽셀이 자신의 확정된 영역에 인접한지 확인
-function isAdjacentToMyTerritory(x, y) {
-    const directions = [
-        [-1, 0], [1, 0], [0, -1], [0, 1],
-        [-1, -1], [-1, 1], [1, -1], [1, 1]
-    ];
-
-    for (const [dx, dy] of directions) {
-        const nx = (x + dx + PAINT_WIDTH) % PAINT_WIDTH;
-        const ny = Math.max(0, Math.min(PAINT_HEIGHT - 1, y + dy));
-        const key = `${nx},${ny}`;
-        const owner = pixelOwnership.get(key);
-
-        // 내 확정된 영역이고, 현재 trail에 포함되지 않은 픽셀
-        if (owner && owner.playerId === myPlayerId && owner.confirmed) {
-            return true;
-        }
-    }
-    return false;
+// 현재 픽셀이 내 영역인지 확인
+function isMyTerritory(x, y) {
+    const key = `${x},${y}`;
+    const owner = pixelOwnership.get(key);
+    return owner && owner.playerId === myPlayerId;
 }
 
-// Trail 무결성 검사: 다른 플레이어가 trail을 끊었는지 확인
-function checkTrailIntegrity() {
-    if (playerTrail.length === 0) return true;
-
-    // Trail의 각 픽셀이 여전히 내 것인지 (또는 비어있는지) 확인
-    // 연속성도 확인 (중간에 끊긴 곳이 있는지)
-    let lastValid = null;
-    let brokenCount = 0;
-
-    for (let i = 0; i < playerTrail.length; i++) {
-        const p = playerTrail[i];
-        const key = `${p.x},${p.y}`;
-        const owner = pixelOwnership.get(key);
-
-        // 다른 플레이어가 이 픽셀을 소유하고 있으면 trail이 끊긴 것
-        if (owner && owner.playerId !== myPlayerId) {
-            brokenCount++;
-            // 연속으로 5개 이상 끊기면 trail 무효
-            if (brokenCount >= 5) {
-                return false;
-            }
-        } else {
-            brokenCount = 0;
-        }
-    }
-
-    return true;
-}
-
-// Trail 초기화
-function resetTrail() {
-    playerTrail = [];
-    isTrailActive = false;
-    trailStartedFromTerritory = false;
-}
-
-// Flood Fill 알고리즘 (Scanline 방식 - 성능 최적화)
-function floodFill(startX, startY, playerId, color) {
-    const filled = [];
+// 닫힌 영역 찾기: 시작점에서 flood fill하여 내 영역으로 완전히 둘러싸여 있는지 확인
+// 반환: { isClosed: boolean, pixels: [{x, y}, ...] }
+function findEnclosedArea(startX, startY) {
     const visited = new Set();
+    const enclosed = [];
     const queue = [[startX, startY]];
+    let isClosed = true;
 
-    // 경계 픽셀들 (trail + 기존 영역)
-    const boundary = new Set();
-    playerTrail.forEach(p => boundary.add(`${p.x},${p.y}`));
+    const maxPixels = 50000; // 너무 큰 영역 방지
 
-    // 기존 확정 영역도 경계에 추가
-    pixelOwnership.forEach((value, key) => {
-        if (value.playerId === playerId && value.confirmed) {
-            boundary.add(key);
-        }
-    });
-
-    let iterations = 0;
-    const maxIterations = 50000; // 무한 루프 방지
-
-    while (queue.length > 0 && iterations < maxIterations) {
-        iterations++;
+    while (queue.length > 0 && enclosed.length < maxPixels) {
         const [x, y] = queue.shift();
         const key = `${x},${y}`;
 
         if (visited.has(key)) continue;
-        if (boundary.has(key)) continue; // 경계에 도달
-        if (x < 0 || x >= PAINT_WIDTH || y < 0 || y >= PAINT_HEIGHT) continue;
 
-        // 바다인지 확인 (육지만 채움)
+        // 맵 상단/하단 경계에 닿으면 열린 영역
+        if (y <= 0 || y >= PAINT_HEIGHT - 1) {
+            isClosed = false;
+            continue;
+        }
+
+        // 범위 체크
+        if (x < 0 || x >= PAINT_WIDTH) continue;
+
+        // 내 영역이면 경계로 처리 (탐색 안함)
+        if (isMyTerritory(x, y)) continue;
+
+        // 바다는 건너뛰기 (육지만 채움)
         if (!isLandAtXY(x, y)) continue;
 
-        // 다른 플레이어 영역은 채우지 않음 (옵션)
-        const existing = pixelOwnership.get(key);
-        if (existing && existing.playerId !== playerId) continue;
-
         visited.add(key);
-        filled.push({ x, y });
+        enclosed.push({ x, y });
 
-        // 4방향 탐색
+        // 4방향 탐색 (좌우는 wrap around)
         queue.push([(x + 1) % PAINT_WIDTH, y]);
         queue.push([(x - 1 + PAINT_WIDTH) % PAINT_WIDTH, y]);
-        queue.push([x, Math.min(PAINT_HEIGHT - 1, y + 1)]);
-        queue.push([x, Math.max(0, y - 1)]);
+        queue.push([x, y + 1]);
+        queue.push([x, y - 1]);
     }
 
-    return filled;
+    // 너무 큰 영역은 열린 영역으로 처리
+    if (enclosed.length >= maxPixels) {
+        isClosed = false;
+    }
+
+    return { isClosed, pixels: enclosed };
 }
 
-// 닫힌 영역 찾기 및 채우기
-function tryFillEnclosedArea() {
-    if (playerTrail.length < MIN_TRAIL_LENGTH) return;
+// 내 영역으로 진입했을 때 주변의 닫힌 영역 찾기 및 채우기
+function tryFillEnclosedAreas(centerX, centerY) {
+    // 현재 위치 주변에서 내 영역이 아닌 픽셀들을 찾아서 닫힌 영역인지 확인
+    const searchRadius = PAINT_RADIUS + 2;
+    const checkedStarts = new Set();
+    let totalFilled = 0;
 
-    // Trail 무결성 검사: 다른 플레이어가 끊었으면 채우지 않음
-    if (!checkTrailIntegrity()) {
-        console.log('Trail broken by another player - not filling');
-        resetTrail();
-        return;
-    }
+    for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+        for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+            const sx = (centerX + dx + PAINT_WIDTH) % PAINT_WIDTH;
+            const sy = Math.max(1, Math.min(PAINT_HEIGHT - 2, centerY + dy));
+            const startKey = `${sx},${sy}`;
 
-    // Trail이 확정 영역에서 시작하지 않았으면 채우지 않음
-    if (!trailStartedFromTerritory) {
-        console.log('Trail did not start from territory - not filling');
-        // Trail을 확정 영역으로 변환 (채우기는 안 함)
-        confirmTrailPixels();
-        resetTrail();
-        return;
-    }
+            // 이미 확인한 시작점이거나, 내 영역이거나, 바다면 스킵
+            if (checkedStarts.has(startKey)) continue;
+            if (isMyTerritory(sx, sy)) continue;
+            if (!isLandAtXY(sx, sy)) continue;
 
-    // Trail의 끝점도 확정 영역에 인접해야 함 (이미 확인됨, 호출 조건)
+            // 이 지점에서 닫힌 영역 탐색
+            const result = findEnclosedArea(sx, sy);
 
-    // Trail의 중심점 계산 (fillable area를 찾기 위한 시드 포인트)
-    let sumX = 0, sumY = 0;
-    playerTrail.forEach(p => {
-        sumX += p.x;
-        sumY += p.y;
-    });
-    const centerX = Math.floor(sumX / playerTrail.length);
-    const centerY = Math.floor(sumY / playerTrail.length);
+            // 탐색한 모든 픽셀을 체크 완료로 표시
+            result.pixels.forEach(p => checkedStarts.add(`${p.x},${p.y}`));
 
-    // 중심점에서 flood fill 시도
-    const filledPixels = floodFill(centerX, centerY, myPlayerId, playerColor.hsl);
+            // 닫힌 영역이고 최소 크기 이상이면 채우기
+            if (result.isClosed && result.pixels.length >= 10 && result.pixels.length < 30000) {
+                console.log(`Filling enclosed area: ${result.pixels.length} pixels`);
 
-    if (filledPixels.length > 0 && filledPixels.length < 30000) {
-        console.log(`Filling enclosed area: ${filledPixels.length} pixels`);
+                // 캔버스에 그리기
+                paintCtx.fillStyle = playerColor.hsl;
+                result.pixels.forEach(p => {
+                    paintCtx.fillRect(p.x, p.y, 1, 1);
+                    const key = `${p.x},${p.y}`;
+                    pixelOwnership.set(key, { playerId: myPlayerId, color: playerColor.hsl });
+                });
 
-        // 캔버스에 그리기
-        paintCtx.fillStyle = playerColor.hsl;
-        filledPixels.forEach(p => {
-            paintCtx.fillRect(p.x, p.y, 1, 1);
-            const key = `${p.x},${p.y}`;
-            pixelOwnership.set(key, { playerId: myPlayerId, color: playerColor.hsl, confirmed: true });
-        });
+                totalFilled += result.pixels.length;
 
-        if (paintTexture) {
-            paintTexture.needsUpdate = true;
-        }
-
-        // 서버에 채운 영역 전송
-        if (multiplayerClient && multiplayerClient.isConnected) {
-            multiplayerClient.send({
-                type: 'fillArea',
-                pixels: filledPixels
-            });
+                // 서버에 채운 영역 전송
+                if (multiplayerClient && multiplayerClient.isConnected) {
+                    multiplayerClient.send({
+                        type: 'fillArea',
+                        pixels: result.pixels
+                    });
+                }
+            }
         }
     }
 
-    // Trail을 확정된 영역으로 변환
-    confirmTrailPixels();
+    if (totalFilled > 0 && paintTexture) {
+        paintTexture.needsUpdate = true;
+    }
 
-    // Trail 초기화
-    resetTrail();
-}
-
-// Trail 픽셀들을 확정 영역으로 변환
-function confirmTrailPixels() {
-    playerTrail.forEach(p => {
-        const key = `${p.x},${p.y}`;
-        const existing = pixelOwnership.get(key);
-        if (existing && existing.playerId === myPlayerId) {
-            existing.confirmed = true;
-        }
-    });
+    return totalFilled;
 }
 
 function paintAt(lat, lon, color = null, sendToServer = true) {
@@ -436,10 +365,11 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
     const painterId = color ? null : myPlayerId;
     paintCtx.fillStyle = paintColor;
 
-    // 내가 칠하는 경우에만 경로 추적
+    // 내가 칠하는 경우에만 영역 진입 감지
     const isMyPainting = !color && painterId;
-    let touchedMyTerritory = false;
-    let startedAdjacentToTerritory = false;
+
+    // 현재 중심 위치가 내 영역인지 확인
+    const currentlyInMyTerritory = isMyTerritory(x, y);
 
     // 브러시 크기만큼 원형으로 칠하기
     for (let dy = -PAINT_RADIUS; dy <= PAINT_RADIUS; dy++) {
@@ -452,17 +382,6 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
                 const currentOwner = pixelOwnership.get(key);
 
                 const isMyPixel = currentOwner && currentOwner.playerId === myPlayerId;
-                const isMyConfirmedPixel = isMyPixel && currentOwner.confirmed;
-
-                // 내가 칠하는 경우: 확정된 영역에 닿았는지 확인
-                if (isMyPainting && isMyConfirmedPixel && isTrailActive) {
-                    touchedMyTerritory = true;
-                }
-
-                // Trail 시작 시 확정 영역에 인접한지 확인
-                if (isMyPainting && !isTrailActive && isAdjacentToMyTerritory(px, py)) {
-                    startedAdjacentToTerritory = true;
-                }
 
                 if (!isMyPixel || color) {
                     if (isLandAtXY(px, py)) {
@@ -474,31 +393,26 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
                         }
 
                         if (isMyPainting) {
-                            // 아직 확정되지 않은 trail로 저장
-                            pixelOwnership.set(key, { playerId: painterId, color: paintColor, confirmed: false });
-
-                            // Trail에 추가
-                            playerTrail.push({ x: px, y: py });
-
-                            // Trail 시작
-                            if (!isTrailActive && playerTrail.length > 1) {
-                                isTrailActive = true;
-                                // Trail 시작 시 확정 영역에서 시작되었는지 기록
-                                trailStartedFromTerritory = startedAdjacentToTerritory;
-                            }
+                            // 내 영역으로 저장
+                            pixelOwnership.set(key, { playerId: painterId, color: paintColor });
                         }
                     }
-                } else if (isMyPainting && isMyPixel && !isMyConfirmedPixel) {
-                    // 이미 내 trail에 있는 픽셀 - trail에 추가만
-                    playerTrail.push({ x: px, y: py });
                 }
             }
         }
     }
 
-    // 확정된 영역에 닿았고 trail이 충분히 길면 영역 채우기 시도
-    if (touchedMyTerritory && playerTrail.length >= MIN_TRAIL_LENGTH) {
-        tryFillEnclosedArea();
+    // 내가 칠하는 경우: 이전에 내 영역 밖에 있다가 내 영역으로 진입했으면 닫힌 영역 확인
+    if (isMyPainting && !wasInMyTerritory && currentlyInMyTerritory) {
+        // 내 영역으로 진입함 - 닫힌 영역 확인 및 채우기
+        tryFillEnclosedAreas(x, y);
+    }
+
+    // 상태 업데이트
+    if (isMyPainting) {
+        wasInMyTerritory = currentlyInMyTerritory;
+        lastPaintX = x;
+        lastPaintY = y;
     }
 
     // 텍스처 업데이트
@@ -508,13 +422,13 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
 }
 
 // 서버에서 받은 페인트 데이터로 캔버스에 직접 그리기
-function paintPixel(x, y, color, playerId = null, confirmed = true) {
+function paintPixel(x, y, color, playerId = null) {
     if (!paintCanvas) return;
 
     const key = `${x},${y}`;
 
     // 소유권 업데이트
-    pixelOwnership.set(key, { playerId: playerId, color: color, confirmed: confirmed });
+    pixelOwnership.set(key, { playerId: playerId, color: color });
 
     paintCtx.fillStyle = color;
     paintCtx.fillRect(x, y, 1, 1);
@@ -531,7 +445,7 @@ function fillPixels(pixels, color, playerId) {
     paintCtx.fillStyle = color;
     pixels.forEach(p => {
         const key = `${p.x},${p.y}`;
-        pixelOwnership.set(key, { playerId: playerId, color: color, confirmed: true });
+        pixelOwnership.set(key, { playerId: playerId, color: color });
         paintCtx.fillRect(p.x, p.y, 1, 1);
     });
 
@@ -1029,7 +943,7 @@ function initMultiplayer() {
                 // 내가 칠한 경우에도 소유권 업데이트
                 data.pixels.forEach(pixel => {
                     const key = `${pixel.x},${pixel.y}`;
-                    pixelOwnership.set(key, { playerId: data.playerId, color: data.color, confirmed: true });
+                    pixelOwnership.set(key, { playerId: data.playerId, color: data.color });
                 });
             }
         },

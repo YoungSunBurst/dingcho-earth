@@ -388,7 +388,7 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
                         painted = true;
 
                         if (sendToServer && multiplayerClient && !color && !isMyPixel) {
-                            multiplayerClient.sendPaint(px, py);
+                            multiplayerClient.addPaint(px, py);
                         }
 
                         if (isMyPainting) {
@@ -928,6 +928,13 @@ function initMultiplayer() {
             const remoteCharacter = remotePlayers.get(data.playerId);
             if (remoteCharacter) {
                 remoteCharacter.setRemoteState(data);
+            }
+
+            // 이동과 함께 전송된 paint 데이터 처리
+            if (data.pixels && data.pixels.length > 0 && data.color) {
+                data.pixels.forEach(pixel => {
+                    paintPixel(pixel.x, pixel.y, data.color, data.playerId);
+                });
             }
         },
 

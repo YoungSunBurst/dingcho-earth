@@ -33,10 +33,8 @@ export class MultiplayerClient {
         this.lastPositionUpdate = 0;
         this.positionUpdateInterval = 50; // ms (20 updates per second)
 
-        // Paint batch buffer
+        // Paint buffer - position과 함께 전송
         this.paintBuffer = [];
-        this.paintBufferTimeout = null;
-        this.paintBufferDelay = 100; // ms
     }
 
     connect() {
@@ -133,7 +131,10 @@ export class MultiplayerClient {
                         isWalking: message.isWalking,
                         isRunning: message.isRunning,
                         isJumping: message.isJumping,
-                        isDrowning: message.isDrowning
+                        isDrowning: message.isDrowning,
+                        // paint 데이터도 함께 전달
+                        pixels: message.pixels,
+                        color: message.color
                     });
                     break;
 
@@ -173,7 +174,8 @@ export class MultiplayerClient {
         }
     }
 
-    // Send position update (throttled)
+    // Send position update with paint data (throttled)
+    // 이동과 색상 정보를 하나의 메시지로 통합하여 전송
     sendPosition(latitude, longitude, facingAngle, state = {}) {
         if (!this.isConnected) return;
 
@@ -183,7 +185,8 @@ export class MultiplayerClient {
         }
         this.lastPositionUpdate = now;
 
-        this.send({
+        // position 메시지에 paint 데이터 포함
+        const message = {
             type: 'position',
             latitude: latitude,
             longitude: longitude,
@@ -192,39 +195,20 @@ export class MultiplayerClient {
             isRunning: state.isRunning || false,
             isJumping: state.isJumping || false,
             isDrowning: state.isDrowning || false
-        });
-    }
+        };
 
-    // Buffer paint and send in batches
-    sendPaint(x, y) {
-        if (!this.isConnected) return;
-
-        this.paintBuffer.push({ x, y });
-
-        // Debounce: send batch after delay
-        if (this.paintBufferTimeout) {
-            clearTimeout(this.paintBufferTimeout);
+        // 버퍼에 paint 데이터가 있으면 함께 전송
+        if (this.paintBuffer.length > 0) {
+            message.pixels = this.paintBuffer;
+            this.paintBuffer = [];
         }
 
-        this.paintBufferTimeout = setTimeout(() => {
-            if (this.paintBuffer.length > 0) {
-                if (this.paintBuffer.length === 1) {
-                    // Single pixel
-                    this.send({
-                        type: 'paint',
-                        x: this.paintBuffer[0].x,
-                        y: this.paintBuffer[0].y
-                    });
-                } else {
-                    // Batch
-                    this.send({
-                        type: 'paintBatch',
-                        pixels: this.paintBuffer
-                    });
-                }
-                this.paintBuffer = [];
-            }
-        }, this.paintBufferDelay);
+        this.send(message);
+    }
+
+    // Paint 데이터를 버퍼에 추가 (다음 position 전송 시 함께 전송됨)
+    addPaint(x, y) {
+        this.paintBuffer.push({ x, y });
     }
 
     // Send ping for latency measurement

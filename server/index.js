@@ -236,7 +236,8 @@ wss.on('connection', (ws) => {
                         p.isJumping = message.isJumping || false;
                         p.isDrowning = message.isDrowning || false;
 
-                        broadcast({
+                        // position과 paint를 통합한 메시지 생성
+                        const moveMessage = {
                             type: 'playerMoved',
                             playerId: playerId,
                             latitude: p.latitude,
@@ -246,7 +247,35 @@ wss.on('connection', (ws) => {
                             isRunning: p.isRunning,
                             isJumping: p.isJumping,
                             isDrowning: p.isDrowning
-                        }, playerId);
+                        };
+
+                        // paint 데이터가 있으면 함께 처리
+                        if (message.pixels && Array.isArray(message.pixels) && message.pixels.length > 0) {
+                            const paintedPixels = [];
+                            let territoryChanged = false;
+
+                            message.pixels.forEach(pixel => {
+                                const result = paintPixel(pixel.x, pixel.y, playerId);
+                                if (result) {
+                                    paintedPixels.push({ x: pixel.x, y: pixel.y });
+                                    if (result.previousOwner) {
+                                        territoryChanged = true;
+                                    }
+                                }
+                            });
+
+                            if (paintedPixels.length > 0) {
+                                moveMessage.pixels = paintedPixels;
+                                moveMessage.color = p.color;
+
+                                // 영역 변경 시 리더보드 업데이트
+                                if (territoryChanged) {
+                                    broadcastLeaderboard();
+                                }
+                            }
+                        }
+
+                        broadcast(moveMessage, playerId);
                     }
                     break;
 

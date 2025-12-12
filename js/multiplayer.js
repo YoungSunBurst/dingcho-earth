@@ -33,11 +33,8 @@ export class MultiplayerClient {
         this.lastPositionUpdate = 0;
         this.positionUpdateInterval = 50; // ms (20 updates per second)
 
-        // Paint batch buffer - throttle 방식으로 변경 (이동과 동일한 주기)
+        // Paint buffer - position과 함께 전송
         this.paintBuffer = [];
-        this.lastPaintSend = 0;
-        this.paintSendInterval = 50; // ms (이동과 동일한 50ms 간격)
-        this.paintMaxBuffer = 20; // 버퍼가 이 크기 이상이면 즉시 전송
     }
 
     connect() {
@@ -134,7 +131,10 @@ export class MultiplayerClient {
                         isWalking: message.isWalking,
                         isRunning: message.isRunning,
                         isJumping: message.isJumping,
-                        isDrowning: message.isDrowning
+                        isDrowning: message.isDrowning,
+                        // paint 데이터도 함께 전달
+                        pixels: message.pixels,
+                        color: message.color
                     });
                     break;
 
@@ -174,7 +174,8 @@ export class MultiplayerClient {
         }
     }
 
-    // Send position update (throttled)
+    // Send position update with paint data (throttled)
+    // 이동과 색상 정보를 하나의 메시지로 통합하여 전송
     sendPosition(latitude, longitude, facingAngle, state = {}) {
         if (!this.isConnected) return;
 
@@ -184,7 +185,8 @@ export class MultiplayerClient {
         }
         this.lastPositionUpdate = now;
 
-        this.send({
+        // position 메시지에 paint 데이터 포함
+        const message = {
             type: 'position',
             latitude: latitude,
             longitude: longitude,
@@ -193,51 +195,20 @@ export class MultiplayerClient {
             isRunning: state.isRunning || false,
             isJumping: state.isJumping || false,
             isDrowning: state.isDrowning || false
-        });
+        };
 
-        // 위치 전송 시 페인트 버퍼도 함께 체크하여 전송 (50ms 간격 보장)
-        if (this.paintBuffer.length > 0 && now - this.lastPaintSend >= this.paintSendInterval) {
-            this.flushPaintBuffer();
+        // 버퍼에 paint 데이터가 있으면 함께 전송
+        if (this.paintBuffer.length > 0) {
+            message.pixels = this.paintBuffer;
+            this.paintBuffer = [];
         }
+
+        this.send(message);
     }
 
-    // Buffer paint and send in batches (throttle 방식 - 이동과 동일한 주기)
-    sendPaint(x, y) {
-        if (!this.isConnected) return;
-
+    // Paint 데이터를 버퍼에 추가 (다음 position 전송 시 함께 전송됨)
+    addPaint(x, y) {
         this.paintBuffer.push({ x, y });
-
-        const now = Date.now();
-        const shouldSend =
-            this.paintBuffer.length >= this.paintMaxBuffer || // 버퍼가 가득 찼으면 즉시 전송
-            now - this.lastPaintSend >= this.paintSendInterval; // 또는 50ms 경과 시
-
-        if (shouldSend) {
-            this.flushPaintBuffer();
-        }
-    }
-
-    // 버퍼에 있는 페인트 데이터 전송
-    flushPaintBuffer() {
-        if (this.paintBuffer.length === 0) return;
-
-        if (this.paintBuffer.length === 1) {
-            // Single pixel
-            this.send({
-                type: 'paint',
-                x: this.paintBuffer[0].x,
-                y: this.paintBuffer[0].y
-            });
-        } else {
-            // Batch
-            this.send({
-                type: 'paintBatch',
-                pixels: this.paintBuffer
-            });
-        }
-
-        this.paintBuffer = [];
-        this.lastPaintSend = Date.now();
     }
 
     // Send ping for latency measurement

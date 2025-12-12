@@ -228,59 +228,43 @@ const PAINT_RADIUS = 3; // 브러시 크기
 let lastPaintLat = null;
 let lastPaintLon = null;
 
-// 두 위도/경도 사이의 보간 점들을 계산 (연결된 선으로 칠하기 위함)
-function getInterpolatedPoints(lat1, lon1, lat2, lon2) {
-    const points = [];
-
+// 두 점 사이의 거리가 브러시 크기보다 큰지 확인하고, 중간 점 반환
+function getMidpointIfNeeded(lat1, lon1, lat2, lon2) {
     // 텍스처 좌표로 변환
     const x1 = ((lon1 + 180) / 360) * PAINT_WIDTH;
     const y1 = ((90 - lat1) / 180) * PAINT_HEIGHT;
     const x2 = ((lon2 + 180) / 360) * PAINT_WIDTH;
     const y2 = ((90 - lat2) / 180) * PAINT_HEIGHT;
 
-    // 경도 wrap around 처리 (예: 179도에서 -179도로 이동 시)
+    // 경도 wrap around 처리
     let dx = x2 - x1;
     const dy = y2 - y1;
 
-    // 경도가 wrap around되는 경우 더 짧은 경로 선택
     if (Math.abs(dx) > PAINT_WIDTH / 2) {
-        if (dx > 0) {
-            dx = dx - PAINT_WIDTH;
-        } else {
-            dx = dx + PAINT_WIDTH;
-        }
+        dx = dx > 0 ? dx - PAINT_WIDTH : dx + PAINT_WIDTH;
     }
 
     // 두 점 사이의 픽셀 거리
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // 브러시 크기보다 작은 간격으로 보간 (연속적인 선을 만들기 위해)
-    const step = Math.max(1, PAINT_RADIUS * 0.5);
-    const numSteps = Math.ceil(distance / step);
+    // 브러시 지름보다 멀면 중간 점 필요
+    if (distance > PAINT_RADIUS * 2) {
+        // 중간 점 계산
+        let midX = x1 + dx * 0.5;
+        const midY = y1 + dy * 0.5;
 
-    if (numSteps <= 1) {
-        return [{ lat: lat2, lon: lon2 }];
+        // wrap around 처리
+        if (midX < 0) midX += PAINT_WIDTH;
+        if (midX >= PAINT_WIDTH) midX -= PAINT_WIDTH;
+
+        // 위도/경도로 변환
+        const midLon = (midX / PAINT_WIDTH) * 360 - 180;
+        const midLat = 90 - (midY / PAINT_HEIGHT) * 180;
+
+        return { lat: midLat, lon: midLon };
     }
 
-    for (let i = 1; i <= numSteps; i++) {
-        const t = i / numSteps;
-
-        // 텍스처 좌표에서 보간
-        let interpX = x1 + dx * t;
-        const interpY = y1 + dy * t;
-
-        // x 좌표 wrap around 처리
-        if (interpX < 0) interpX += PAINT_WIDTH;
-        if (interpX >= PAINT_WIDTH) interpX -= PAINT_WIDTH;
-
-        // 다시 위도/경도로 변환
-        const interpLon = (interpX / PAINT_WIDTH) * 360 - 180;
-        const interpLat = 90 - (interpY / PAINT_HEIGHT) * 180;
-
-        points.push({ lat: interpLat, lon: interpLon });
-    }
-
-    return points;
+    return null;
 }
 
 // === 영역 채우기 시스템 (영역 기반) ===
@@ -469,7 +453,7 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
     }
 }
 
-// 이전 위치와 현재 위치를 연결하여 칠하기 (육지 영역만)
+// 이전 위치와 현재 위치를 연결하여 칠하기 (육지 영역만, 최적화 버전)
 function paintConnectedAt(lat, lon) {
     if (!paintCanvas) return;
 
@@ -483,27 +467,17 @@ function paintConnectedAt(lat, lon) {
         return;
     }
 
-    // 이전 위치가 있고 육지였으면 두 점 사이를 보간하여 칠하기
+    // 이전 위치가 있으면 중간 점 필요 여부 확인
     if (lastPaintLat !== null && lastPaintLon !== null) {
-        // 이전 위치도 육지인지 확인
-        if (isLandAt(lastPaintLat, lastPaintLon)) {
-            // 두 점 사이의 보간 점들 계산
-            const points = getInterpolatedPoints(lastPaintLat, lastPaintLon, lat, lon);
-
-            // 각 보간 점에서 칠하기 (육지인 경우만)
-            for (const point of points) {
-                if (isLandAt(point.lat, point.lon)) {
-                    paintAt(point.lat, point.lon, null, true);
-                }
-            }
-        } else {
-            // 이전 위치가 바다였으면 현재 위치만 칠하기
-            paintAt(lat, lon, null, true);
+        // 두 점 사이 거리가 멀면 중간 점 하나만 추가
+        const midpoint = getMidpointIfNeeded(lastPaintLat, lastPaintLon, lat, lon);
+        if (midpoint && isLandAt(midpoint.lat, midpoint.lon)) {
+            paintAt(midpoint.lat, midpoint.lon, null, true);
         }
-    } else {
-        // 이전 위치가 없으면 현재 위치만 칠하기
-        paintAt(lat, lon, null, true);
     }
+
+    // 현재 위치 칠하기
+    paintAt(lat, lon, null, true);
 
     // 현재 위치를 이전 위치로 저장
     lastPaintLat = lat;

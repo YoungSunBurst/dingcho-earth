@@ -257,14 +257,6 @@ export class MultiplayerClient {
         });
     }
 
-    // 게임 리셋 요청 (방장만 가능)
-    requestReset() {
-        if (!this.isConnected || !this.isHost) return;
-        this.send({
-            type: 'requestReset'
-        });
-    }
-
     // Send position update with paint data (throttled)
     // 이동과 색상 정보를 하나의 메시지로 통합하여 전송
     sendPosition(latitude, longitude, facingAngle, state = {}) {

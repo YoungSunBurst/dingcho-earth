@@ -1274,6 +1274,9 @@ function initMultiplayer() {
             gameState = 'playing';
             updateGameState('playing');
 
+            // 페인트 캔버스 초기화
+            clearPaintCanvas();
+
             // 모든 모달 닫기
             hideAllModals();
 
@@ -1403,13 +1406,19 @@ document.getElementById('start-game-btn').addEventListener('click', () => {
     }
 });
 
-// 결과 확인 버튼
+// 결과 확인 버튼 (로컬 동작 - 각자 결과 모달을 닫고 대기 화면으로 이동)
 document.getElementById('result-confirm-btn').addEventListener('click', () => {
     hideModal('result-modal');
 
-    // 방장이면 게임 리셋 요청
-    if (isHost && multiplayerClient) {
-        multiplayerClient.requestReset();
+    // 대기 중이면 방장/대기 모달 표시
+    if (gameState === 'waiting') {
+        if (isHost) {
+            updatePlayerList('host-player-list');
+            showModal('host-modal');
+        } else {
+            updatePlayerList('waiting-player-list');
+            showModal('waiting-modal');
+        }
     }
 });
 

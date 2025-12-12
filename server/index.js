@@ -189,6 +189,12 @@ function assignNewHost() {
 function startGame(duration) {
     if (gameState === 'playing') return;
 
+    // 게임 시작 시 페인트 데이터 초기화
+    paintData.clear();
+    playerPixelCounts.forEach((_, playerId) => {
+        playerPixelCounts.set(playerId, 0);
+    });
+
     gameState = 'playing';
     gameDuration = duration;
     gameStartTime = Date.now();
@@ -244,13 +250,26 @@ function endGame() {
 
     console.log('Game ended! Final rankings:', finalRankings);
 
+    // 1등이 다음 방장이 됨 (1등이 있고 아직 연결되어 있는 경우)
+    if (finalRankings.length > 0 && players.has(finalRankings[0].playerId)) {
+        const winnerId = finalRankings[0].playerId;
+        if (hostId !== winnerId) {
+            hostId = winnerId;
+            console.log(`New host (winner): ${hostId}`);
+
+            // 모든 클라이언트에게 새 방장 알림
+            broadcastAll({
+                type: 'hostChanged',
+                hostId: hostId
+            });
+        }
+    }
+
     // 모든 클라이언트에게 게임 종료 및 결과 알림
     broadcastAll({
         type: 'gameEnded',
         rankings: finalRankings
     });
-
-    // 자동 리셋 제거 - 방장이 확인 버튼을 누를 때 리셋
 }
 
 // 게임 초기화
@@ -427,13 +446,6 @@ wss.on('connection', (ws) => {
                     if (playerId === hostId && gameState === 'waiting') {
                         const duration = message.duration || 60000; // 기본 1분
                         startGame(duration);
-                    }
-                    break;
-
-                case 'requestReset':
-                    // 방장만 게임 리셋 가능
-                    if (playerId === hostId && gameState === 'waiting') {
-                        resetGame();
                     }
                     break;
 

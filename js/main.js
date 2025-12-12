@@ -1223,11 +1223,10 @@ function initMultiplayer() {
             // 페인트 캔버스 초기화
             clearPaintCanvas();
 
-            // 결과 모달 숨기기
-            hideModal('result-modal');
-
-            // 방장/대기 모달 표시
-            setTimeout(() => {
+            // 결과 모달이 닫혀있으면 방장/대기 모달 표시
+            // (결과 모달은 사용자가 확인 버튼을 누를 때까지 유지)
+            const resultModal = document.getElementById('result-modal');
+            if (!resultModal.classList.contains('visible')) {
                 if (isHost) {
                     updatePlayerList('host-player-list');
                     showModal('host-modal');
@@ -1235,7 +1234,7 @@ function initMultiplayer() {
                     updatePlayerList('waiting-player-list');
                     showModal('waiting-modal');
                 }
-            }, 500);
+            }
         },
 
         onTimeUpdate: (data) => {
@@ -1321,6 +1320,22 @@ document.querySelectorAll('.time-option').forEach(btn => {
 document.getElementById('start-game-btn').addEventListener('click', () => {
     if (isHost && multiplayerClient) {
         multiplayerClient.startGame(selectedGameDuration);
+    }
+});
+
+// 결과 확인 버튼
+document.getElementById('result-confirm-btn').addEventListener('click', () => {
+    hideModal('result-modal');
+
+    // 게임이 대기 중이면 방장/대기 모달 표시
+    if (gameState === 'waiting') {
+        if (isHost) {
+            updatePlayerList('host-player-list');
+            showModal('host-modal');
+        } else {
+            updatePlayerList('waiting-player-list');
+            showModal('waiting-modal');
+        }
     }
 });
 

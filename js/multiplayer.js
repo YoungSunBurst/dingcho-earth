@@ -33,10 +33,11 @@ export class MultiplayerClient {
         this.lastPositionUpdate = 0;
         this.positionUpdateInterval = 50; // ms (20 updates per second)
 
-        // Paint batch buffer
+        // Paint batch buffer - throttle 방식으로 변경 (이동과 동일한 주기)
         this.paintBuffer = [];
-        this.paintBufferTimeout = null;
-        this.paintBufferDelay = 100; // ms
+        this.lastPaintSend = 0;
+        this.paintSendInterval = 50; // ms (이동과 동일한 50ms 간격)
+        this.paintMaxBuffer = 20; // 버퍼가 이 크기 이상이면 즉시 전송
     }
 
     connect() {
@@ -193,38 +194,50 @@ export class MultiplayerClient {
             isJumping: state.isJumping || false,
             isDrowning: state.isDrowning || false
         });
+
+        // 위치 전송 시 페인트 버퍼도 함께 체크하여 전송 (50ms 간격 보장)
+        if (this.paintBuffer.length > 0 && now - this.lastPaintSend >= this.paintSendInterval) {
+            this.flushPaintBuffer();
+        }
     }
 
-    // Buffer paint and send in batches
+    // Buffer paint and send in batches (throttle 방식 - 이동과 동일한 주기)
     sendPaint(x, y) {
         if (!this.isConnected) return;
 
         this.paintBuffer.push({ x, y });
 
-        // Debounce: send batch after delay
-        if (this.paintBufferTimeout) {
-            clearTimeout(this.paintBufferTimeout);
+        const now = Date.now();
+        const shouldSend =
+            this.paintBuffer.length >= this.paintMaxBuffer || // 버퍼가 가득 찼으면 즉시 전송
+            now - this.lastPaintSend >= this.paintSendInterval; // 또는 50ms 경과 시
+
+        if (shouldSend) {
+            this.flushPaintBuffer();
+        }
+    }
+
+    // 버퍼에 있는 페인트 데이터 전송
+    flushPaintBuffer() {
+        if (this.paintBuffer.length === 0) return;
+
+        if (this.paintBuffer.length === 1) {
+            // Single pixel
+            this.send({
+                type: 'paint',
+                x: this.paintBuffer[0].x,
+                y: this.paintBuffer[0].y
+            });
+        } else {
+            // Batch
+            this.send({
+                type: 'paintBatch',
+                pixels: this.paintBuffer
+            });
         }
 
-        this.paintBufferTimeout = setTimeout(() => {
-            if (this.paintBuffer.length > 0) {
-                if (this.paintBuffer.length === 1) {
-                    // Single pixel
-                    this.send({
-                        type: 'paint',
-                        x: this.paintBuffer[0].x,
-                        y: this.paintBuffer[0].y
-                    });
-                } else {
-                    // Batch
-                    this.send({
-                        type: 'paintBatch',
-                        pixels: this.paintBuffer
-                    });
-                }
-                this.paintBuffer = [];
-            }
-        }, this.paintBufferDelay);
+        this.paintBuffer = [];
+        this.lastPaintSend = Date.now();
     }
 
     // Send ping for latency measurement

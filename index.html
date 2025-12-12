@@ -14,6 +14,7 @@
         body {
             overflow: hidden;
             background: #000;
+            font-family: 'Segoe UI', sans-serif;
         }
 
         #canvas-container {
@@ -27,7 +28,6 @@
             left: 50%;
             transform: translate(-50%, -50%);
             color: white;
-            font-family: 'Segoe UI', sans-serif;
             font-size: 24px;
             z-index: 100;
         }
@@ -37,7 +37,6 @@
             bottom: 20px;
             left: 20px;
             color: white;
-            font-family: 'Segoe UI', sans-serif;
             font-size: 14px;
             background: rgba(0,0,0,0.6);
             padding: 12px 16px;
@@ -56,13 +55,12 @@
             top: 20px;
             right: 20px;
             color: white;
-            font-family: 'Segoe UI', sans-serif;
             font-size: 14px;
             background: rgba(0,0,0,0.7);
             padding: 16px;
             border-radius: 8px;
             backdrop-filter: blur(4px);
-            min-width: 180px;
+            min-width: 200px;
         }
 
         #leaderboard-title {
@@ -121,6 +119,14 @@
             flex-shrink: 0;
         }
 
+        .leaderboard-item .player-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 80px;
+        }
+
         .leaderboard-item .pixels {
             font-weight: bold;
             margin-left: auto;
@@ -133,7 +139,6 @@
             top: 20px;
             left: 20px;
             color: white;
-            font-family: 'Segoe UI', sans-serif;
             font-size: 14px;
             background: rgba(0,0,0,0.6);
             padding: 12px 16px;
@@ -167,6 +172,321 @@
             border-radius: 4px;
             border: 2px solid white;
         }
+
+        #my-name {
+            font-weight: bold;
+            color: #4fc3f7;
+        }
+
+        /* 방장 표시 */
+        #host-badge {
+            display: none;
+            margin-top: 8px;
+            padding: 4px 8px;
+            background: linear-gradient(135deg, #ffd700, #ff8c00);
+            color: #000;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        #host-badge.visible {
+            display: block;
+        }
+
+        /* 게임 타이머 */
+        #game-timer {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            background: rgba(0,0,0,0.7);
+            padding: 12px 24px;
+            border-radius: 12px;
+            backdrop-filter: blur(4px);
+            display: none;
+            z-index: 50;
+        }
+
+        #game-timer.visible {
+            display: block;
+        }
+
+        #game-timer.warning {
+            color: #ff6b6b;
+            animation: pulse 0.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.05); }
+        }
+
+        /* 모달 기본 스타일 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 16px;
+            padding: 32px;
+            color: white;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .modal h2 {
+            text-align: center;
+            margin-bottom: 24px;
+            color: #4fc3f7;
+        }
+
+        .modal input[type="text"] {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 18px;
+            text-align: center;
+            margin-bottom: 20px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .modal input[type="text"]:focus {
+            border-color: #4fc3f7;
+        }
+
+        .modal input[type="text"]::placeholder {
+            color: rgba(255,255,255,0.5);
+        }
+
+        .modal button {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.2s;
+        }
+
+        .modal button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .modal button:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4fc3f7, #2196f3);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        /* 이름 입력 모달 */
+        #name-modal .color-preview {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            border: 4px solid white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        /* 게임 설정 모달 (방장용) */
+        #host-modal .time-options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        #host-modal .time-option {
+            padding: 16px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        #host-modal .time-option:hover {
+            background: rgba(79, 195, 247, 0.2);
+            border-color: rgba(79, 195, 247, 0.5);
+        }
+
+        #host-modal .time-option.selected {
+            background: rgba(79, 195, 247, 0.3);
+            border-color: #4fc3f7;
+        }
+
+        #host-modal .player-list {
+            margin-bottom: 20px;
+            padding: 12px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        #host-modal .player-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        #host-modal .player-item .color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
+
+        /* 대기 모달 (일반 플레이어용) */
+        #waiting-modal .waiting-text {
+            text-align: center;
+            font-size: 18px;
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 20px;
+        }
+
+        #waiting-modal .waiting-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255,255,255,0.2);
+            border-top-color: #4fc3f7;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 게임 결과 모달 */
+        #result-modal h2 {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        #result-modal .subtitle {
+            text-align: center;
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 24px;
+        }
+
+        #result-modal .result-list {
+            margin-bottom: 24px;
+        }
+
+        #result-modal .result-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            background: rgba(255,255,255,0.05);
+        }
+
+        #result-modal .result-item.winner {
+            background: linear-gradient(135deg, rgba(255,215,0,0.3), rgba(255,140,0,0.3));
+            border: 2px solid #ffd700;
+        }
+
+        #result-modal .result-item.me {
+            border: 2px solid #4fc3f7;
+        }
+
+        #result-modal .result-item .medal {
+            font-size: 24px;
+        }
+
+        #result-modal .result-item .result-rank {
+            font-weight: bold;
+            min-width: 40px;
+            color: #aaa;
+        }
+
+        #result-modal .result-item:nth-child(1) .result-rank {
+            color: #ffd700;
+        }
+
+        #result-modal .result-item:nth-child(2) .result-rank {
+            color: #c0c0c0;
+        }
+
+        #result-modal .result-item:nth-child(3) .result-rank {
+            color: #cd7f32;
+        }
+
+        #result-modal .result-item .result-color {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: 2px solid white;
+        }
+
+        #result-modal .result-item .result-name {
+            flex: 1;
+        }
+
+        #result-modal .result-item .result-pixels {
+            font-weight: bold;
+            color: #4fc3f7;
+        }
+
+        /* 게임 상태 표시 */
+        #game-state-display {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+
+        #game-state {
+            font-weight: bold;
+            color: #ff9800;
+        }
+
+        #game-state.playing {
+            color: #4caf50;
+        }
     </style>
 </head>
 <body>
@@ -175,6 +495,9 @@
     <div id="info">
         Drag to rotate | Scroll to zoom
     </div>
+
+    <!-- 게임 타이머 -->
+    <div id="game-timer">5:00</div>
 
     <!-- 연결 상태 (왼쪽 위) -->
     <div id="multiplayer-status">
@@ -185,16 +508,76 @@
             Players: <span id="player-count">1</span>
         </div>
         <div id="my-color-display">
-            <span>My Color:</span>
             <div id="player-color"></div>
+            <span id="my-name">-</span>
+        </div>
+        <div id="host-badge">HOST</div>
+        <div id="game-state-display">
+            Status: <span id="game-state">Waiting</span>
         </div>
     </div>
 
     <!-- 리더보드 (오른쪽 위) -->
     <div id="leaderboard">
-        <div id="leaderboard-title">🏆 RANKING</div>
+        <div id="leaderboard-title">RANKING</div>
         <div id="leaderboard-list">
             <!-- 동적으로 생성됨 -->
+        </div>
+    </div>
+
+    <!-- 이름 입력 모달 -->
+    <div id="name-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>Enter Your Name</h2>
+            <div id="name-color-preview" class="color-preview"></div>
+            <input type="text" id="player-name-input" placeholder="Player Name" maxlength="12" autocomplete="off">
+            <button id="name-submit-btn" class="btn-primary">JOIN GAME</button>
+        </div>
+    </div>
+
+    <!-- 방장 게임 설정 모달 -->
+    <div id="host-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>Game Settings</h2>
+            <p style="text-align: center; color: rgba(255,255,255,0.7); margin-bottom: 16px;">You are the HOST</p>
+
+            <div class="player-list" id="host-player-list">
+                <!-- 플레이어 목록 -->
+            </div>
+
+            <p style="margin-bottom: 12px;">Select Game Duration:</p>
+            <div class="time-options">
+                <button class="time-option" data-time="60000">1 min</button>
+                <button class="time-option selected" data-time="180000">3 min</button>
+                <button class="time-option" data-time="300000">5 min</button>
+                <button class="time-option" data-time="600000">10 min</button>
+            </div>
+
+            <button id="start-game-btn" class="btn-primary">START GAME</button>
+        </div>
+    </div>
+
+    <!-- 대기 모달 (일반 플레이어) -->
+    <div id="waiting-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>Waiting for Host</h2>
+            <div class="waiting-spinner"></div>
+            <p class="waiting-text">The host will start the game soon...</p>
+            <div class="player-list" id="waiting-player-list">
+                <!-- 플레이어 목록 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 게임 결과 모달 -->
+    <div id="result-modal" class="modal-overlay">
+        <div class="modal">
+            <h2>Game Over!</h2>
+            <p class="subtitle">Final Rankings</p>
+            <div class="result-list" id="result-list">
+                <!-- 결과 목록 -->
+            </div>
+            <p style="text-align: center; color: rgba(255,255,255,0.5); font-size: 14px;">Next round starting soon...</p>
         </div>
     </div>
 

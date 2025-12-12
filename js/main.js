@@ -9,10 +9,14 @@ const WS_SERVER_URL = window.location.hostname === 'localhost' || window.locatio
     ? 'ws://localhost:3001'
     : `wss://${window.location.hostname}:3001`;
 
-// 리모트 플레이어 저장소
+// 리모트 플레이어 저장소 (playerId -> { character, name, color })
 const remotePlayers = new Map();
 let multiplayerClient = null;
 let myPlayerId = null;
+let myPlayerName = null;
+let isHost = false;
+let gameState = 'waiting';  // 'waiting', 'playing'
+let selectedGameDuration = 180000;  // 기본 3분
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -136,17 +140,6 @@ function isLandAt(lat, lon) {
 }
 
 // === PAINT SYSTEM ===
-// 랜덤 플레이어 색상 생성
-function generateRandomColor() {
-    const hue = Math.random() * 360;
-    const saturation = 70 + Math.random() * 30; // 70-100%
-    const lightness = 50 + Math.random() * 20;  // 50-70%
-    return {
-        hsl: `hsl(${hue}, ${saturation}%, ${lightness}%)`,
-        rgb: hslToRgb(hue / 360, saturation / 100, lightness / 100)
-    };
-}
-
 // HSL을 RGB로 변환
 function hslToRgb(h, s, l) {
     let r, g, b;
@@ -175,8 +168,7 @@ function hslToRgb(h, s, l) {
 }
 
 // 플레이어 색상 (서버에서 할당받음)
-let playerColor = generateRandomColor(); // 기본값 (오프라인 모드용)
-document.getElementById('player-color').style.backgroundColor = playerColor.hsl;
+let playerColor = { hsl: 'hsl(0, 80%, 60%)' };
 
 // 페인트 캔버스 (지구 텍스처와 동일한 크기)
 const PAINT_WIDTH = 1000;
@@ -292,6 +284,9 @@ function findEnclosedArea(startX, startY) {
 
 // 내 영역으로 진입했을 때 주변의 닫힌 영역 찾기 및 채우기
 function tryFillEnclosedAreas(centerX, centerY) {
+    // 게임 중이 아니면 채우기 불가
+    if (gameState !== 'playing') return 0;
+
     // 현재 위치 주변에서 내 영역이 아닌 픽셀들을 찾아서 닫힌 영역인지 확인
     const searchRadius = PAINT_RADIUS + 2;
     const checkedStarts = new Set();
@@ -348,6 +343,9 @@ function tryFillEnclosedAreas(centerX, centerY) {
 
 function paintAt(lat, lon, color = null, sendToServer = true) {
     if (!paintCanvas) return;
+
+    // 게임 중이 아니면 칠하기 불가 (내가 칠하는 경우)
+    if (!color && gameState !== 'playing') return;
 
     // 이동 불가 영역(바다)이면 칠하지 않음
     if (!isLandAt(lat, lon)) return;
@@ -456,6 +454,18 @@ function fillPixels(pixels, color, playerId) {
         pixelOwnership.set(key, { playerId: playerId, color: color });
         paintCtx.fillRect(p.x, p.y, 1, 1);
     });
+
+    if (paintTexture) {
+        paintTexture.needsUpdate = true;
+    }
+}
+
+// 페인트 캔버스 초기화 (게임 리셋 시)
+function clearPaintCanvas() {
+    if (!paintCanvas) return;
+
+    paintCtx.clearRect(0, 0, PAINT_WIDTH, PAINT_HEIGHT);
+    pixelOwnership.clear();
 
     if (paintTexture) {
         paintTexture.needsUpdate = true;
@@ -629,7 +639,12 @@ const keys = {
     Space: false
 };
 
+// 모달이 열려있으면 키 입력 무시
+let isModalOpen = false;
+
 document.addEventListener('keydown', (e) => {
+    if (isModalOpen) return;
+
     // e.code를 사용하여 물리적 키 위치 기반으로 감지 (한글 입력 모드에서도 동작)
     if (e.code in keys) {
         keys[e.code] = true;
@@ -647,6 +662,12 @@ document.addEventListener('keyup', (e) => {
 });
 
 function handleInput(deltaTime) {
+    // 모달이 열려있으면 입력 무시
+    if (isModalOpen) {
+        character.stopWalking();
+        return;
+    }
+
     // 물에 빠진 동안에는 입력 무시
     if (character.isDrowning) {
         character.stopWalking();
@@ -695,6 +716,8 @@ const followDistance = 0.3;
 const followHeight = 0.15;
 
 document.addEventListener('keydown', (e) => {
+    if (isModalOpen) return;
+
     // e.code를 사용하여 한글 입력 모드에서도 카메라 전환 가능
     if (e.code === 'KeyF') {
         // F: 버드뷰 (위에서 내려다보기)
@@ -784,16 +807,114 @@ function updateCameraFollow() {
 // Clock for deltaTime
 const clock = new THREE.Clock();
 
+// === UI FUNCTIONS ===
+
+// 모달 표시/숨기기
+function showModal(modalId) {
+    document.getElementById(modalId).classList.add('visible');
+    isModalOpen = true;
+}
+
+function hideModal(modalId) {
+    document.getElementById(modalId).classList.remove('visible');
+    // 모든 모달이 닫혔는지 확인
+    const modals = document.querySelectorAll('.modal-overlay');
+    let anyOpen = false;
+    modals.forEach(m => {
+        if (m.classList.contains('visible')) anyOpen = true;
+    });
+    isModalOpen = anyOpen;
+}
+
+function hideAllModals() {
+    document.querySelectorAll('.modal-overlay').forEach(m => {
+        m.classList.remove('visible');
+    });
+    isModalOpen = false;
+}
+
+// 타이머 포맷팅
+function formatTime(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+// 타이머 업데이트
+function updateTimer(remaining) {
+    const timerEl = document.getElementById('game-timer');
+    timerEl.textContent = formatTime(remaining);
+
+    // 10초 이하면 경고 스타일
+    if (remaining <= 10000) {
+        timerEl.classList.add('warning');
+    } else {
+        timerEl.classList.remove('warning');
+    }
+}
+
+// 방장 배지 업데이트
+function updateHostBadge(isHostNow) {
+    const badge = document.getElementById('host-badge');
+    if (isHostNow) {
+        badge.classList.add('visible');
+    } else {
+        badge.classList.remove('visible');
+    }
+}
+
+// 게임 상태 업데이트
+function updateGameState(state) {
+    const stateEl = document.getElementById('game-state');
+    stateEl.textContent = state === 'playing' ? 'Playing' : 'Waiting';
+    stateEl.className = state === 'playing' ? 'playing' : '';
+}
+
+// 플레이어 목록 업데이트 (방장/대기 모달용)
+function updatePlayerList(listId) {
+    const listEl = document.getElementById(listId);
+    if (!listEl) return;
+
+    listEl.innerHTML = '';
+
+    // 내 정보 추가
+    if (myPlayerName) {
+        const myItem = document.createElement('div');
+        myItem.className = 'player-item';
+        myItem.innerHTML = `
+            <span class="color-dot" style="background-color: ${playerColor.hsl}"></span>
+            <span>${myPlayerName} (You)</span>
+        `;
+        listEl.appendChild(myItem);
+    }
+
+    // 리모트 플레이어들 추가
+    remotePlayers.forEach((data, id) => {
+        if (data.name) {
+            const item = document.createElement('div');
+            item.className = 'player-item';
+            item.innerHTML = `
+                <span class="color-dot" style="background-color: ${data.color}"></span>
+                <span>${data.name}</span>
+            `;
+            listEl.appendChild(item);
+        }
+    });
+}
+
 // === MULTIPLAYER FUNCTIONS ===
 
 // 리모트 플레이어 생성
 function createRemotePlayer(playerData) {
     if (remotePlayers.has(playerData.id)) {
-        console.log(`Remote player ${playerData.id} already exists`);
+        // 이미 존재하면 정보 업데이트
+        const existing = remotePlayers.get(playerData.id);
+        existing.name = playerData.name;
         return;
     }
 
-    console.log(`Creating remote player: ${playerData.id} with color ${playerData.color}`);
+    console.log(`Creating remote player: ${playerData.id} (${playerData.name}) with color ${playerData.color}`);
 
     const remoteCharacter = new Character({
         playerId: playerData.id,
@@ -809,20 +930,28 @@ function createRemotePlayer(playerData) {
     remoteCharacter.landCheckFn = isLandAt;
 
     scene.add(remoteCharacter.group);
-    remotePlayers.set(playerData.id, remoteCharacter);
+    remotePlayers.set(playerData.id, {
+        character: remoteCharacter,
+        name: playerData.name,
+        color: playerData.color
+    });
 
     updatePlayerCount();
+    updatePlayerList('host-player-list');
+    updatePlayerList('waiting-player-list');
 }
 
 // 리모트 플레이어 제거
 function removeRemotePlayer(playerId) {
-    const remoteCharacter = remotePlayers.get(playerId);
-    if (remoteCharacter) {
-        scene.remove(remoteCharacter.group);
-        remoteCharacter.dispose();
+    const remoteData = remotePlayers.get(playerId);
+    if (remoteData) {
+        scene.remove(remoteData.character.group);
+        remoteData.character.dispose();
         remotePlayers.delete(playerId);
         console.log(`Removed remote player: ${playerId}`);
         updatePlayerCount();
+        updatePlayerList('host-player-list');
+        updatePlayerList('waiting-player-list');
     }
 }
 
@@ -854,15 +983,52 @@ function updateLeaderboard(rankings) {
         colorBox.className = 'color-box';
         colorBox.style.backgroundColor = player.color;
 
+        const name = document.createElement('span');
+        name.className = 'player-name';
+        name.textContent = player.name || 'Unknown';
+
         const pixels = document.createElement('span');
         pixels.className = 'pixels';
         pixels.textContent = player.pixelCount.toLocaleString();
 
         item.appendChild(rank);
         item.appendChild(colorBox);
+        item.appendChild(name);
         item.appendChild(pixels);
         leaderboardEl.appendChild(item);
     });
+}
+
+// 게임 결과 표시
+function showGameResult(rankings) {
+    const resultList = document.getElementById('result-list');
+    resultList.innerHTML = '';
+
+    const medals = ['', '', ''];
+
+    rankings.forEach((player, index) => {
+        const isMe = player.playerId === myPlayerId;
+        const isWinner = index === 0;
+
+        const item = document.createElement('div');
+        item.className = 'result-item' + (isWinner ? ' winner' : '') + (isMe ? ' me' : '');
+
+        let medal = '';
+        if (index === 0) medal = '';
+        else if (index === 1) medal = '';
+        else if (index === 2) medal = '';
+
+        item.innerHTML = `
+            <span class="medal">${medal}</span>
+            <span class="result-rank">#${index + 1}</span>
+            <span class="result-color" style="background-color: ${player.color}"></span>
+            <span class="result-name">${player.name || 'Unknown'}${isMe ? ' (You)' : ''}</span>
+            <span class="result-pixels">${player.pixelCount.toLocaleString()}</span>
+        `;
+        resultList.appendChild(item);
+    });
+
+    showModal('result-modal');
 }
 
 // 멀티플레이어 초기화
@@ -873,10 +1039,18 @@ function initMultiplayer() {
         onConnected: (data) => {
             console.log('Connected to multiplayer server!');
             myPlayerId = data.playerId;
+            isHost = data.isHost;
 
             // 서버에서 받은 색상으로 업데이트
             playerColor = { hsl: data.color };
             document.getElementById('player-color').style.backgroundColor = data.color;
+            document.getElementById('name-color-preview').style.backgroundColor = data.color;
+
+            // 캐릭터 색상 업데이트
+            character.updateColor(data.color);
+
+            // 방장 배지 업데이트
+            updateHostBadge(isHost);
 
             // 연결 상태 표시
             const statusEl = document.getElementById('connection-status');
@@ -884,6 +1058,10 @@ function initMultiplayer() {
                 statusEl.textContent = 'Online';
                 statusEl.style.color = '#4caf50';
             }
+
+            // 이름 입력 모달 표시
+            showModal('name-modal');
+            document.getElementById('player-name-input').focus();
         },
 
         onDisconnected: () => {
@@ -897,9 +1075,18 @@ function initMultiplayer() {
 
         onInitialState: (state) => {
             console.log('Received initial state:', state);
+            isHost = state.isHost;
+            gameState = state.gameState;
+
+            updateHostBadge(isHost);
+            updateGameState(gameState);
 
             // 기존 플레이어들 생성
-            state.players.forEach(p => createRemotePlayer(p));
+            state.players.forEach(p => {
+                if (p.name) {  // 이름이 있는 플레이어만
+                    createRemotePlayer(p);
+                }
+            });
 
             // 기존 페인트 데이터 적용
             if (state.paintData && state.paintData.length > 0) {
@@ -914,6 +1101,15 @@ function initMultiplayer() {
             if (state.leaderboard) {
                 updateLeaderboard(state.leaderboard);
             }
+
+            // 게임이 진행 중이면 타이머 표시
+            if (state.gameState === 'playing' && state.gameEndTime) {
+                const remaining = state.gameEndTime - Date.now();
+                if (remaining > 0) {
+                    document.getElementById('game-timer').classList.add('visible');
+                    updateTimer(remaining);
+                }
+            }
         },
 
         onPlayerJoined: (player) => {
@@ -925,9 +1121,9 @@ function initMultiplayer() {
         },
 
         onPlayerMoved: (data) => {
-            const remoteCharacter = remotePlayers.get(data.playerId);
-            if (remoteCharacter) {
-                remoteCharacter.setRemoteState(data);
+            const remoteData = remotePlayers.get(data.playerId);
+            if (remoteData) {
+                remoteData.character.setRemoteState(data);
             }
 
             // 이동과 함께 전송된 paint 데이터 처리
@@ -976,6 +1172,75 @@ function initMultiplayer() {
             updateLeaderboard(rankings);
         },
 
+        onHostChanged: (data) => {
+            isHost = data.isHost;
+            updateHostBadge(isHost);
+
+            // 대기 중이고 이름이 설정되었으면 모달 업데이트
+            if (gameState === 'waiting' && myPlayerName) {
+                hideAllModals();
+                if (isHost) {
+                    updatePlayerList('host-player-list');
+                    showModal('host-modal');
+                } else {
+                    updatePlayerList('waiting-player-list');
+                    showModal('waiting-modal');
+                }
+            }
+        },
+
+        onGameStarted: (data) => {
+            console.log('Game started!');
+            gameState = 'playing';
+            updateGameState('playing');
+
+            // 모든 모달 닫기
+            hideAllModals();
+
+            // 타이머 표시
+            document.getElementById('game-timer').classList.add('visible');
+            updateTimer(data.duration);
+        },
+
+        onGameEnded: (data) => {
+            console.log('Game ended!');
+            gameState = 'waiting';
+            updateGameState('waiting');
+
+            // 타이머 숨기기
+            document.getElementById('game-timer').classList.remove('visible');
+            document.getElementById('game-timer').classList.remove('warning');
+
+            // 결과 표시
+            showGameResult(data.rankings);
+        },
+
+        onGameReset: (data) => {
+            console.log('Game reset!');
+            isHost = data.isHost;
+            updateHostBadge(isHost);
+
+            // 페인트 캔버스 초기화
+            clearPaintCanvas();
+
+            // 결과 모달이 닫혀있으면 방장/대기 모달 표시
+            // (결과 모달은 사용자가 확인 버튼을 누를 때까지 유지)
+            const resultModal = document.getElementById('result-modal');
+            if (!resultModal.classList.contains('visible')) {
+                if (isHost) {
+                    updatePlayerList('host-player-list');
+                    showModal('host-modal');
+                } else {
+                    updatePlayerList('waiting-player-list');
+                    showModal('waiting-modal');
+                }
+            }
+        },
+
+        onTimeUpdate: (data) => {
+            updateTimer(data.remaining);
+        },
+
         onError: (error) => {
             console.error('Multiplayer error:', error);
         }
@@ -1002,6 +1267,78 @@ function sendMyPosition() {
     }
 }
 
+// === UI EVENT HANDLERS ===
+
+// 이름 입력 제출
+document.getElementById('name-submit-btn').addEventListener('click', () => {
+    const nameInput = document.getElementById('player-name-input');
+    const name = nameInput.value.trim();
+
+    if (name.length === 0) {
+        nameInput.style.borderColor = '#f44336';
+        return;
+    }
+
+    myPlayerName = name;
+    document.getElementById('my-name').textContent = name;
+
+    // 서버에 이름 전송
+    multiplayerClient.setName(name);
+
+    // 이름 모달 숨기기
+    hideModal('name-modal');
+
+    // 게임 상태에 따라 다음 모달 표시
+    if (gameState === 'waiting') {
+        if (isHost) {
+            updatePlayerList('host-player-list');
+            showModal('host-modal');
+        } else {
+            updatePlayerList('waiting-player-list');
+            showModal('waiting-modal');
+        }
+    }
+});
+
+// 엔터키로 이름 제출
+document.getElementById('player-name-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        document.getElementById('name-submit-btn').click();
+    }
+});
+
+// 게임 시간 선택
+document.querySelectorAll('.time-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.time-option').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedGameDuration = parseInt(btn.dataset.time);
+    });
+});
+
+// 게임 시작 버튼
+document.getElementById('start-game-btn').addEventListener('click', () => {
+    if (isHost && multiplayerClient) {
+        multiplayerClient.startGame(selectedGameDuration);
+    }
+});
+
+// 결과 확인 버튼
+document.getElementById('result-confirm-btn').addEventListener('click', () => {
+    hideModal('result-modal');
+
+    // 게임이 대기 중이면 방장/대기 모달 표시
+    if (gameState === 'waiting') {
+        if (isHost) {
+            updatePlayerList('host-player-list');
+            showModal('host-modal');
+        } else {
+            updatePlayerList('waiting-player-list');
+            showModal('waiting-modal');
+        }
+    }
+});
+
 // Animation
 function animate() {
     requestAnimationFrame(animate);
@@ -1015,12 +1352,12 @@ function animate() {
     character.update(deltaTime);
 
     // 리모트 플레이어들 업데이트
-    remotePlayers.forEach(remoteChar => {
-        remoteChar.update(deltaTime);
+    remotePlayers.forEach(remoteData => {
+        remoteData.character.update(deltaTime);
     });
 
     // 캐릭터가 걷고 있고 물에 빠지지 않았으면 현재 위치에 색칠
-    if (character.isWalking && !character.isDrowning) {
+    if (character.isWalking && !character.isDrowning && gameState === 'playing') {
         paintAt(character.latitude, character.longitude);
     }
 

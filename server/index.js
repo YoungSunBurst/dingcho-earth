@@ -7,6 +7,7 @@
  * - Player positions (latitude, longitude, facingAngle)
  * - Paint data with territory ownership tracking
  * - Leaderboard (ranking by painted pixel count)
+ * - Game room system (host, timer, names)
  */
 
 const WebSocket = require('ws');
@@ -24,7 +25,9 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({
             status: 'ok',
             players: players.size,
-            totalPaintedPixels: paintData.size
+            totalPaintedPixels: paintData.size,
+            gameState: gameState,
+            hostId: hostId
         }));
     } else if (req.url === '/leaderboard') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -47,12 +50,60 @@ const paintData = new Map();
 // Player pixel counts - Map of playerId -> count
 const playerPixelCounts = new Map();
 
-// Generate random color for new player
-function generateRandomColor() {
+// === GAME ROOM SYSTEM ===
+let hostId = null;  // 방장 ID
+let gameState = 'waiting';  // 'waiting', 'playing'
+let gameDuration = 0;  // 게임 시간 (ms)
+let gameTimer = null;  // 게임 타이머
+let gameStartTime = null;  // 게임 시작 시간
+let gameEndTime = null;  // 게임 종료 시간
+
+// 구별 가능한 색상 팔레트 (최대 20명)
+const COLOR_PALETTE = [
+    'hsl(0, 85%, 60%)',     // 빨강
+    'hsl(210, 85%, 55%)',   // 파랑
+    'hsl(120, 70%, 45%)',   // 초록
+    'hsl(45, 95%, 55%)',    // 노랑/주황
+    'hsl(280, 75%, 60%)',   // 보라
+    'hsl(180, 70%, 50%)',   // 청록
+    'hsl(330, 80%, 60%)',   // 분홍
+    'hsl(30, 90%, 55%)',    // 주황
+    'hsl(60, 80%, 50%)',    // 라임
+    'hsl(195, 80%, 50%)',   // 하늘색
+    'hsl(300, 70%, 55%)',   // 마젠타
+    'hsl(150, 70%, 45%)',   // 민트
+    'hsl(15, 85%, 55%)',    // 코랄
+    'hsl(240, 70%, 60%)',   // 인디고
+    'hsl(90, 65%, 50%)',    // 연두
+    'hsl(345, 75%, 55%)',   // 로즈
+    'hsl(165, 75%, 45%)',   // 틸
+    'hsl(255, 65%, 60%)',   // 라벤더
+    'hsl(75, 75%, 50%)',    // 올리브
+    'hsl(200, 80%, 55%)'    // 스틸블루
+];
+
+// 사용 중인 색상 인덱스 추적
+const usedColorIndices = new Set();
+
+// 사용되지 않은 색상 할당
+function assignColor() {
+    // 사용되지 않은 색상 찾기
+    for (let i = 0; i < COLOR_PALETTE.length; i++) {
+        if (!usedColorIndices.has(i)) {
+            usedColorIndices.add(i);
+            return { color: COLOR_PALETTE[i], colorIndex: i };
+        }
+    }
+    // 모든 색상이 사용 중이면 랜덤 색상 생성 (드문 경우)
     const hue = Math.random() * 360;
-    const saturation = 70 + Math.random() * 30;
-    const lightness = 50 + Math.random() * 20;
-    return `hsl(${Math.round(hue)}, ${Math.round(saturation)}%, ${Math.round(lightness)}%)`;
+    return { color: `hsl(${Math.round(hue)}, 80%, 55%)`, colorIndex: -1 };
+}
+
+// 색상 반환 (플레이어 퇴장 시)
+function releaseColor(colorIndex) {
+    if (colorIndex >= 0) {
+        usedColorIndices.delete(colorIndex);
+    }
 }
 
 // Generate unique player ID
@@ -65,11 +116,14 @@ function getLeaderboard() {
     const leaderboard = [];
 
     players.forEach((player, playerId) => {
-        leaderboard.push({
-            playerId: playerId,
-            color: player.color,
-            pixelCount: playerPixelCounts.get(playerId) || 0
-        });
+        if (player.name) {  // 이름이 설정된 플레이어만
+            leaderboard.push({
+                playerId: playerId,
+                name: player.name,
+                color: player.color,
+                pixelCount: playerPixelCounts.get(playerId) || 0
+            });
+        }
     });
 
     // Sort by pixel count descending
@@ -109,8 +163,127 @@ function broadcastLeaderboard() {
     });
 }
 
+// 방장 변경 (랜덤 선택)
+function assignNewHost() {
+    const playerIds = Array.from(players.keys());
+    if (playerIds.length === 0) {
+        hostId = null;
+        return null;
+    }
+
+    const randomIndex = Math.floor(Math.random() * playerIds.length);
+    hostId = playerIds[randomIndex];
+
+    console.log(`New host assigned: ${hostId}`);
+
+    // 모든 클라이언트에게 새 방장 알림
+    broadcastAll({
+        type: 'hostChanged',
+        hostId: hostId
+    });
+
+    return hostId;
+}
+
+// 게임 시작
+function startGame(duration) {
+    if (gameState === 'playing') return;
+
+    gameState = 'playing';
+    gameDuration = duration;
+    gameStartTime = Date.now();
+    gameEndTime = gameStartTime + duration;
+
+    console.log(`Game started! Duration: ${duration / 1000} seconds`);
+
+    // 모든 클라이언트에게 게임 시작 알림
+    broadcastAll({
+        type: 'gameStarted',
+        duration: duration,
+        startTime: gameStartTime,
+        endTime: gameEndTime
+    });
+
+    // 게임 타이머 설정
+    gameTimer = setTimeout(() => {
+        endGame();
+    }, duration);
+
+    // 매초 남은 시간 브로드캐스트
+    const timerInterval = setInterval(() => {
+        if (gameState !== 'playing') {
+            clearInterval(timerInterval);
+            return;
+        }
+
+        const remaining = Math.max(0, gameEndTime - Date.now());
+        broadcastAll({
+            type: 'timeUpdate',
+            remaining: remaining
+        });
+
+        if (remaining <= 0) {
+            clearInterval(timerInterval);
+        }
+    }, 1000);
+}
+
+// 게임 종료
+function endGame() {
+    if (gameState !== 'playing') return;
+
+    gameState = 'waiting';
+
+    if (gameTimer) {
+        clearTimeout(gameTimer);
+        gameTimer = null;
+    }
+
+    // 최종 순위 계산
+    const finalRankings = getLeaderboard();
+
+    console.log('Game ended! Final rankings:', finalRankings);
+
+    // 모든 클라이언트에게 게임 종료 및 결과 알림
+    broadcastAll({
+        type: 'gameEnded',
+        rankings: finalRankings
+    });
+
+    // 3초 후 게임판 초기화 및 새 방장 선정
+    setTimeout(() => {
+        resetGame();
+    }, 3000);
+}
+
+// 게임 초기화
+function resetGame() {
+    // 페인트 데이터 초기화
+    paintData.clear();
+    playerPixelCounts.forEach((_, playerId) => {
+        playerPixelCounts.set(playerId, 0);
+    });
+
+    // 새 방장 랜덤 선정
+    assignNewHost();
+
+    console.log('Game reset! New host:', hostId);
+
+    // 모든 클라이언트에게 리셋 알림
+    broadcastAll({
+        type: 'gameReset',
+        hostId: hostId
+    });
+
+    // 리더보드 업데이트
+    broadcastLeaderboard();
+}
+
 // Paint a pixel and handle territory changes
 function paintPixel(x, y, playerId) {
+    // 게임 중이 아니면 칠하기 불가
+    if (gameState !== 'playing') return null;
+
     const key = `${x},${y}`;
     const player = players.get(playerId);
     if (!player) return null;
@@ -145,12 +318,14 @@ function paintPixel(x, y, playerId) {
 // Handle new connection
 wss.on('connection', (ws) => {
     const playerId = generatePlayerId();
-    const playerColor = generateRandomColor();
+    const { color: playerColor, colorIndex } = assignColor();
 
     // Default spawn position (Seoul, Korea area with randomness)
     const player = {
         id: playerId,
+        name: null,  // 이름은 나중에 설정
         color: playerColor,
+        colorIndex: colorIndex,
         latitude: 37 + (Math.random() - 0.5) * 5,
         longitude: 127 + (Math.random() - 0.5) * 5,
         facingAngle: Math.random() * Math.PI * 2,
@@ -164,7 +339,13 @@ wss.on('connection', (ws) => {
     players.set(playerId, player);
     playerPixelCounts.set(playerId, 0);
 
-    console.log(`Player connected: ${playerId} (color: ${playerColor})`);
+    // 첫 번째 플레이어는 방장
+    const isHost = players.size === 1;
+    if (isHost) {
+        hostId = playerId;
+    }
+
+    console.log(`Player connected: ${playerId} (color: ${playerColor}, isHost: ${isHost})`);
     console.log(`Total players: ${players.size}`);
 
     // Send welcome message with player info and current game state
@@ -172,6 +353,11 @@ wss.on('connection', (ws) => {
         type: 'welcome',
         playerId: playerId,
         color: playerColor,
+        isHost: playerId === hostId,
+        hostId: hostId,
+        gameState: gameState,
+        gameDuration: gameDuration,
+        gameEndTime: gameEndTime,
         position: {
             latitude: player.latitude,
             longitude: player.longitude,
@@ -181,6 +367,7 @@ wss.on('connection', (ws) => {
             .filter(([id]) => id !== playerId)
             .map(([id, p]) => ({
                 id: id,
+                name: p.name,
                 color: p.color,
                 latitude: p.latitude,
                 longitude: p.longitude,
@@ -200,24 +387,8 @@ wss.on('connection', (ws) => {
 
     ws.send(JSON.stringify(welcomeMessage));
 
-    // Notify other players about new player
-    broadcast({
-        type: 'playerJoined',
-        player: {
-            id: playerId,
-            color: playerColor,
-            latitude: player.latitude,
-            longitude: player.longitude,
-            facingAngle: player.facingAngle,
-            isWalking: false,
-            isRunning: false,
-            isJumping: false,
-            isDrowning: false
-        }
-    }, playerId);
-
-    // Broadcast updated leaderboard
-    broadcastLeaderboard();
+    // Notify other players about new player (이름 설정 전이므로 알리지 않음)
+    // playerJoined는 setName 후에 전송됨
 
     // Handle messages
     ws.on('message', (data) => {
@@ -225,6 +396,43 @@ wss.on('connection', (ws) => {
             const message = JSON.parse(data);
 
             switch (message.type) {
+                case 'setName':
+                    // 플레이어 이름 설정
+                    const targetPlayer = players.get(playerId);
+                    if (targetPlayer) {
+                        targetPlayer.name = message.name;
+                        console.log(`Player ${playerId} set name: ${message.name}`);
+
+                        // 다른 플레이어들에게 새 플레이어 알림
+                        broadcast({
+                            type: 'playerJoined',
+                            player: {
+                                id: playerId,
+                                name: targetPlayer.name,
+                                color: targetPlayer.color,
+                                latitude: targetPlayer.latitude,
+                                longitude: targetPlayer.longitude,
+                                facingAngle: targetPlayer.facingAngle,
+                                isWalking: false,
+                                isRunning: false,
+                                isJumping: false,
+                                isDrowning: false
+                            }
+                        }, playerId);
+
+                        // 리더보드 업데이트
+                        broadcastLeaderboard();
+                    }
+                    break;
+
+                case 'startGame':
+                    // 방장만 게임 시작 가능
+                    if (playerId === hostId && gameState === 'waiting') {
+                        const duration = message.duration || 60000; // 기본 1분
+                        startGame(duration);
+                    }
+                    break;
+
                 case 'position':
                     if (players.has(playerId)) {
                         const p = players.get(playerId);
@@ -333,6 +541,9 @@ wss.on('connection', (ws) => {
                     break;
 
                 case 'fillArea':
+                    // 게임 중이 아니면 채우기 불가
+                    if (gameState !== 'playing') break;
+
                     // Handle territory fill (closed area)
                     const fillPlayer = players.get(playerId);
                     if (fillPlayer && Array.isArray(message.pixels)) {
@@ -397,6 +608,13 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         console.log(`Player disconnected: ${playerId}`);
 
+        const disconnectedPlayer = players.get(playerId);
+
+        // 색상 반환
+        if (disconnectedPlayer) {
+            releaseColor(disconnectedPlayer.colorIndex);
+        }
+
         // Note: We keep the player's painted pixels even after disconnect
         // They just won't appear in the leaderboard anymore
 
@@ -409,6 +627,11 @@ wss.on('connection', (ws) => {
             type: 'playerLeft',
             playerId: playerId
         });
+
+        // 방장이 나갔으면 새 방장 선정
+        if (playerId === hostId) {
+            assignNewHost();
+        }
 
         // Broadcast updated leaderboard
         broadcastLeaderboard();
@@ -433,6 +656,9 @@ server.listen(PORT, () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
     console.log('Shutting down server...');
+    if (gameTimer) {
+        clearTimeout(gameTimer);
+    }
     wss.clients.forEach(client => {
         client.close();
     });

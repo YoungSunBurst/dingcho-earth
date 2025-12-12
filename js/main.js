@@ -224,6 +224,65 @@ function calculateTotalLandPixels() {
 const pixelOwnership = new Map();
 const PAINT_RADIUS = 3; // 브러시 크기
 
+// 이전 칠한 위치 저장 (영역 연결용)
+let lastPaintLat = null;
+let lastPaintLon = null;
+
+// 두 위도/경도 사이의 보간 점들을 계산 (연결된 선으로 칠하기 위함)
+function getInterpolatedPoints(lat1, lon1, lat2, lon2) {
+    const points = [];
+
+    // 텍스처 좌표로 변환
+    const x1 = ((lon1 + 180) / 360) * PAINT_WIDTH;
+    const y1 = ((90 - lat1) / 180) * PAINT_HEIGHT;
+    const x2 = ((lon2 + 180) / 360) * PAINT_WIDTH;
+    const y2 = ((90 - lat2) / 180) * PAINT_HEIGHT;
+
+    // 경도 wrap around 처리 (예: 179도에서 -179도로 이동 시)
+    let dx = x2 - x1;
+    const dy = y2 - y1;
+
+    // 경도가 wrap around되는 경우 더 짧은 경로 선택
+    if (Math.abs(dx) > PAINT_WIDTH / 2) {
+        if (dx > 0) {
+            dx = dx - PAINT_WIDTH;
+        } else {
+            dx = dx + PAINT_WIDTH;
+        }
+    }
+
+    // 두 점 사이의 픽셀 거리
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // 브러시 크기보다 작은 간격으로 보간 (연속적인 선을 만들기 위해)
+    const step = Math.max(1, PAINT_RADIUS * 0.5);
+    const numSteps = Math.ceil(distance / step);
+
+    if (numSteps <= 1) {
+        return [{ lat: lat2, lon: lon2 }];
+    }
+
+    for (let i = 1; i <= numSteps; i++) {
+        const t = i / numSteps;
+
+        // 텍스처 좌표에서 보간
+        let interpX = x1 + dx * t;
+        const interpY = y1 + dy * t;
+
+        // x 좌표 wrap around 처리
+        if (interpX < 0) interpX += PAINT_WIDTH;
+        if (interpX >= PAINT_WIDTH) interpX -= PAINT_WIDTH;
+
+        // 다시 위도/경도로 변환
+        const interpLon = (interpX / PAINT_WIDTH) * 360 - 180;
+        const interpLat = 90 - (interpY / PAINT_HEIGHT) * 180;
+
+        points.push({ lat: interpLat, lon: interpLon });
+    }
+
+    return points;
+}
+
 // === 영역 채우기 시스템 (영역 기반) ===
 
 // 현재 픽셀이 내 영역인지 확인
@@ -408,6 +467,53 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
     if (painted && paintTexture) {
         paintTexture.needsUpdate = true;
     }
+}
+
+// 이전 위치와 현재 위치를 연결하여 칠하기 (육지 영역만)
+function paintConnectedAt(lat, lon) {
+    if (!paintCanvas) return;
+
+    // 게임 중이 아니면 칠하기 불가
+    if (gameState !== 'playing') return;
+
+    // 현재 위치가 육지가 아니면 칠하지 않고 이전 위치 초기화
+    if (!isLandAt(lat, lon)) {
+        lastPaintLat = null;
+        lastPaintLon = null;
+        return;
+    }
+
+    // 이전 위치가 있고 육지였으면 두 점 사이를 보간하여 칠하기
+    if (lastPaintLat !== null && lastPaintLon !== null) {
+        // 이전 위치도 육지인지 확인
+        if (isLandAt(lastPaintLat, lastPaintLon)) {
+            // 두 점 사이의 보간 점들 계산
+            const points = getInterpolatedPoints(lastPaintLat, lastPaintLon, lat, lon);
+
+            // 각 보간 점에서 칠하기 (육지인 경우만)
+            for (const point of points) {
+                if (isLandAt(point.lat, point.lon)) {
+                    paintAt(point.lat, point.lon, null, true);
+                }
+            }
+        } else {
+            // 이전 위치가 바다였으면 현재 위치만 칠하기
+            paintAt(lat, lon, null, true);
+        }
+    } else {
+        // 이전 위치가 없으면 현재 위치만 칠하기
+        paintAt(lat, lon, null, true);
+    }
+
+    // 현재 위치를 이전 위치로 저장
+    lastPaintLat = lat;
+    lastPaintLon = lon;
+}
+
+// 칠하기 상태 초기화 (걷기 멈출 때 호출)
+function resetPaintState() {
+    lastPaintLat = null;
+    lastPaintLon = null;
 }
 
 // 현재 픽셀이 내 영역에 인접한지 확인
@@ -1356,9 +1462,12 @@ function animate() {
         remoteData.character.update(deltaTime);
     });
 
-    // 캐릭터가 걷고 있고 물에 빠지지 않았으면 현재 위치에 색칠
+    // 캐릭터가 걷고 있고 물에 빠지지 않았으면 현재 위치에 색칠 (이전 위치와 연결)
     if (character.isWalking && !character.isDrowning && gameState === 'playing') {
-        paintAt(character.latitude, character.longitude);
+        paintConnectedAt(character.latitude, character.longitude);
+    } else {
+        // 걷기를 멈추면 이전 위치 초기화
+        resetPaintState();
     }
 
     // 내 위치를 서버에 전송

@@ -224,6 +224,49 @@ function calculateTotalLandPixels() {
 const pixelOwnership = new Map();
 const PAINT_RADIUS = 3; // 브러시 크기
 
+// 이전 칠한 위치 저장 (영역 연결용)
+let lastPaintLat = null;
+let lastPaintLon = null;
+
+// 두 점 사이의 거리가 브러시 크기보다 큰지 확인하고, 중간 점 반환
+function getMidpointIfNeeded(lat1, lon1, lat2, lon2) {
+    // 텍스처 좌표로 변환
+    const x1 = ((lon1 + 180) / 360) * PAINT_WIDTH;
+    const y1 = ((90 - lat1) / 180) * PAINT_HEIGHT;
+    const x2 = ((lon2 + 180) / 360) * PAINT_WIDTH;
+    const y2 = ((90 - lat2) / 180) * PAINT_HEIGHT;
+
+    // 경도 wrap around 처리
+    let dx = x2 - x1;
+    const dy = y2 - y1;
+
+    if (Math.abs(dx) > PAINT_WIDTH / 2) {
+        dx = dx > 0 ? dx - PAINT_WIDTH : dx + PAINT_WIDTH;
+    }
+
+    // 두 점 사이의 픽셀 거리
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // 브러시 지름보다 멀면 중간 점 필요
+    if (distance > PAINT_RADIUS * 2) {
+        // 중간 점 계산
+        let midX = x1 + dx * 0.5;
+        const midY = y1 + dy * 0.5;
+
+        // wrap around 처리
+        if (midX < 0) midX += PAINT_WIDTH;
+        if (midX >= PAINT_WIDTH) midX -= PAINT_WIDTH;
+
+        // 위도/경도로 변환
+        const midLon = (midX / PAINT_WIDTH) * 360 - 180;
+        const midLat = 90 - (midY / PAINT_HEIGHT) * 180;
+
+        return { lat: midLat, lon: midLon };
+    }
+
+    return null;
+}
+
 // === 영역 채우기 시스템 (영역 기반) ===
 
 // 현재 픽셀이 내 영역인지 확인
@@ -408,6 +451,43 @@ function paintAt(lat, lon, color = null, sendToServer = true) {
     if (painted && paintTexture) {
         paintTexture.needsUpdate = true;
     }
+}
+
+// 이전 위치와 현재 위치를 연결하여 칠하기 (육지 영역만, 최적화 버전)
+function paintConnectedAt(lat, lon) {
+    if (!paintCanvas) return;
+
+    // 게임 중이 아니면 칠하기 불가
+    if (gameState !== 'playing') return;
+
+    // 현재 위치가 육지가 아니면 칠하지 않고 이전 위치 초기화
+    if (!isLandAt(lat, lon)) {
+        lastPaintLat = null;
+        lastPaintLon = null;
+        return;
+    }
+
+    // 이전 위치가 있으면 중간 점 필요 여부 확인
+    if (lastPaintLat !== null && lastPaintLon !== null) {
+        // 두 점 사이 거리가 멀면 중간 점 하나만 추가
+        const midpoint = getMidpointIfNeeded(lastPaintLat, lastPaintLon, lat, lon);
+        if (midpoint && isLandAt(midpoint.lat, midpoint.lon)) {
+            paintAt(midpoint.lat, midpoint.lon, null, true);
+        }
+    }
+
+    // 현재 위치 칠하기
+    paintAt(lat, lon, null, true);
+
+    // 현재 위치를 이전 위치로 저장
+    lastPaintLat = lat;
+    lastPaintLon = lon;
+}
+
+// 칠하기 상태 초기화 (걷기 멈출 때 호출)
+function resetPaintState() {
+    lastPaintLat = null;
+    lastPaintLon = null;
 }
 
 // 현재 픽셀이 내 영역에 인접한지 확인
@@ -1356,9 +1436,12 @@ function animate() {
         remoteData.character.update(deltaTime);
     });
 
-    // 캐릭터가 걷고 있고 물에 빠지지 않았으면 현재 위치에 색칠
+    // 캐릭터가 걷고 있고 물에 빠지지 않았으면 현재 위치에 색칠 (이전 위치와 연결)
     if (character.isWalking && !character.isDrowning && gameState === 'playing') {
-        paintAt(character.latitude, character.longitude);
+        paintConnectedAt(character.latitude, character.longitude);
+    } else {
+        // 걷기를 멈추면 이전 위치 초기화
+        resetPaintState();
     }
 
     // 내 위치를 서버에 전송

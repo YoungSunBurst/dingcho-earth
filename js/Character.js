@@ -490,6 +490,23 @@ export class Character {
         this.isDrowning = state.isDrowning || false;
     }
 
+    // 캐릭터 색상 업데이트
+    updateColor(hslString) {
+        this.playerColor = hslString;
+        const bodyColor = this.parseHSLColor(hslString);
+        if (bodyColor !== null) {
+            // body, head, ears, arms, hands 색상 업데이트
+            if (this.body) this.body.material.color.setHex(bodyColor);
+            if (this.head) this.head.material.color.setHex(bodyColor);
+            if (this.leftEar) this.leftEar.material.color.setHex(bodyColor);
+            if (this.rightEar) this.rightEar.material.color.setHex(bodyColor);
+            if (this.leftArm) this.leftArm.material.color.setHex(bodyColor);
+            if (this.rightArm) this.rightArm.material.color.setHex(bodyColor);
+            if (this.leftHand) this.leftHand.material.color.setHex(bodyColor);
+            if (this.rightHand) this.rightHand.material.color.setHex(bodyColor);
+        }
+    }
+
     // 캐릭터 제거
     dispose() {
         this.group.traverse((child) => {

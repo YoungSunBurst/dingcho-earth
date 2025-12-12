@@ -3,6 +3,7 @@
  * COMPETITIVE MODE - Territory battle!
  *
  * Handles WebSocket connection and synchronization with server
+ * Including game room system (host, timer, names)
  */
 
 export class MultiplayerClient {
@@ -11,6 +12,10 @@ export class MultiplayerClient {
         this.ws = null;
         this.playerId = null;
         this.playerColor = null;
+        this.playerName = null;
+        this.isHost = false;
+        this.hostId = null;
+        this.gameState = 'waiting';  // 'waiting', 'playing'
         this.isConnected = false;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
@@ -28,6 +33,13 @@ export class MultiplayerClient {
         this.onInitialState = options.onInitialState || (() => {});
         this.onLeaderboard = options.onLeaderboard || (() => {});
         this.onError = options.onError || (() => {});
+
+        // Game room callbacks
+        this.onHostChanged = options.onHostChanged || (() => {});
+        this.onGameStarted = options.onGameStarted || (() => {});
+        this.onGameEnded = options.onGameEnded || (() => {});
+        this.onGameReset = options.onGameReset || (() => {});
+        this.onTimeUpdate = options.onTimeUpdate || (() => {});
 
         // Position update throttling
         this.lastPositionUpdate = 0;
@@ -90,12 +102,19 @@ export class MultiplayerClient {
                 case 'welcome':
                     this.playerId = message.playerId;
                     this.playerColor = message.color;
-                    console.log(`Welcome! Player ID: ${this.playerId}, Color: ${this.playerColor}`);
+                    this.isHost = message.isHost;
+                    this.hostId = message.hostId;
+                    this.gameState = message.gameState;
+                    console.log(`Welcome! Player ID: ${this.playerId}, Color: ${this.playerColor}, Host: ${this.isHost}`);
 
                     // Send initial state to callback
                     this.onInitialState({
                         playerId: this.playerId,
                         color: this.playerColor,
+                        isHost: this.isHost,
+                        hostId: this.hostId,
+                        gameState: this.gameState,
+                        gameEndTime: message.gameEndTime,
                         position: message.position,
                         players: message.players,
                         paintData: message.paintData,
@@ -104,7 +123,8 @@ export class MultiplayerClient {
 
                     this.onConnected({
                         playerId: this.playerId,
-                        color: this.playerColor
+                        color: this.playerColor,
+                        isHost: this.isHost
                     });
                     break;
 
@@ -113,7 +133,7 @@ export class MultiplayerClient {
                     break;
 
                 case 'playerJoined':
-                    console.log(`Player joined: ${message.player.id}`);
+                    console.log(`Player joined: ${message.player.id} (${message.player.name})`);
                     this.onPlayerJoined(message.player);
                     break;
 
@@ -163,6 +183,50 @@ export class MultiplayerClient {
                     });
                     break;
 
+                case 'hostChanged':
+                    this.hostId = message.hostId;
+                    this.isHost = this.playerId === message.hostId;
+                    console.log(`Host changed: ${message.hostId}, I am host: ${this.isHost}`);
+                    this.onHostChanged({
+                        hostId: message.hostId,
+                        isHost: this.isHost
+                    });
+                    break;
+
+                case 'gameStarted':
+                    this.gameState = 'playing';
+                    console.log(`Game started! Duration: ${message.duration / 1000}s`);
+                    this.onGameStarted({
+                        duration: message.duration,
+                        startTime: message.startTime,
+                        endTime: message.endTime
+                    });
+                    break;
+
+                case 'gameEnded':
+                    this.gameState = 'waiting';
+                    console.log('Game ended!');
+                    this.onGameEnded({
+                        rankings: message.rankings
+                    });
+                    break;
+
+                case 'gameReset':
+                    this.hostId = message.hostId;
+                    this.isHost = this.playerId === message.hostId;
+                    console.log(`Game reset! New host: ${message.hostId}`);
+                    this.onGameReset({
+                        hostId: message.hostId,
+                        isHost: this.isHost
+                    });
+                    break;
+
+                case 'timeUpdate':
+                    this.onTimeUpdate({
+                        remaining: message.remaining
+                    });
+                    break;
+
                 case 'pong':
                     // Handle pong response for latency measurement
                     const latency = Date.now() - message.timestamp;
@@ -172,6 +236,25 @@ export class MultiplayerClient {
         } catch (error) {
             console.error('Error parsing message:', error);
         }
+    }
+
+    // 플레이어 이름 설정
+    setName(name) {
+        if (!this.isConnected) return;
+        this.playerName = name;
+        this.send({
+            type: 'setName',
+            name: name
+        });
+    }
+
+    // 게임 시작 (방장만 가능)
+    startGame(duration) {
+        if (!this.isConnected || !this.isHost) return;
+        this.send({
+            type: 'startGame',
+            duration: duration
+        });
     }
 
     // Send position update with paint data (throttled)
@@ -240,5 +323,13 @@ export class MultiplayerClient {
 
     getPlayerColor() {
         return this.playerColor;
+    }
+
+    getIsHost() {
+        return this.isHost;
+    }
+
+    getGameState() {
+        return this.gameState;
     }
 }

@@ -250,10 +250,7 @@ function endGame() {
         rankings: finalRankings
     });
 
-    // 3초 후 게임판 초기화 및 새 방장 선정
-    setTimeout(() => {
-        resetGame();
-    }, 3000);
+    // 자동 리셋 제거 - 방장이 확인 버튼을 누를 때 리셋
 }
 
 // 게임 초기화
@@ -430,6 +427,13 @@ wss.on('connection', (ws) => {
                     if (playerId === hostId && gameState === 'waiting') {
                         const duration = message.duration || 60000; // 기본 1분
                         startGame(duration);
+                    }
+                    break;
+
+                case 'requestReset':
+                    // 방장만 게임 리셋 가능
+                    if (playerId === hostId && gameState === 'waiting') {
+                        resetGame();
                     }
                     break;
 

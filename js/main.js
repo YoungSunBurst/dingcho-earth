@@ -1407,15 +1407,9 @@ document.getElementById('start-game-btn').addEventListener('click', () => {
 document.getElementById('result-confirm-btn').addEventListener('click', () => {
     hideModal('result-modal');
 
-    // 게임이 대기 중이면 방장/대기 모달 표시
-    if (gameState === 'waiting') {
-        if (isHost) {
-            updatePlayerList('host-player-list');
-            showModal('host-modal');
-        } else {
-            updatePlayerList('waiting-player-list');
-            showModal('waiting-modal');
-        }
+    // 방장이면 게임 리셋 요청
+    if (isHost && multiplayerClient) {
+        multiplayerClient.requestReset();
     }
 });
 

@@ -375,6 +375,81 @@ export class Character {
         this.updatePositionOnEarth();
     }
 
+    // 카메라 기준 방향으로 이동 (새로운 조작 방식)
+    // dirX: 좌우 방향 (-1: 왼쪽, 1: 오른쪽)
+    // dirY: 앞뒤 방향 (-1: 앞, 1: 뒤)
+    moveInCameraDirection(dirX, dirY, camera, deltaTime) {
+        if (dirX === 0 && dirY === 0) return;
+
+        const speed = this.isRunning ? this.runSpeed : this.walkSpeed;
+        const moveAmount = speed * deltaTime;
+
+        // 캐릭터 위치 기준 "위" 벡터 (지구 중심에서 캐릭터 방향)
+        const charPos = this.group.position.clone();
+        const up = charPos.clone().normalize();
+
+        // 카메라에서 캐릭터를 향하는 방향
+        const cameraPos = camera.position.clone();
+        const toCharacter = charPos.clone().sub(cameraPos).normalize();
+
+        // 카메라 기준 "앞" 방향 (지구 표면에 평행하게 투영)
+        // toCharacter에서 up 성분을 제거
+        const forward = toCharacter.clone().sub(up.clone().multiplyScalar(toCharacter.dot(up))).normalize();
+
+        // 카메라 기준 "오른쪽" 방향
+        const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+
+        // 이동 방향 계산 (dirY가 음수면 앞으로, dirX가 양수면 오른쪽)
+        const moveDir = new THREE.Vector3()
+            .addScaledVector(forward, -dirY)
+            .addScaledVector(right, dirX)
+            .normalize();
+
+        // 이동 방향이 없으면 리턴
+        if (moveDir.length() < 0.01) return;
+
+        // 새 위치 계산
+        const currentPos = this.group.position.clone();
+        const newPos = currentPos.add(moveDir.multiplyScalar(moveAmount));
+
+        // 새 위치를 구면 좌표로 변환
+        const r = newPos.length();
+        const newLat = Math.asin(newPos.y / r) * (180 / Math.PI);
+        const newLon = Math.atan2(newPos.x, newPos.z) * (180 / Math.PI);
+
+        const clampedLat = Math.max(-85, Math.min(85, newLat));
+
+        // 육지 체크: 점프 중이 아니고 바다면 이동 불가
+        if (this.landCheckFn && !this.isJumping) {
+            if (!this.landCheckFn(clampedLat, newLon)) {
+                this.isWalking = true;
+                return;
+            }
+        }
+
+        // 캐릭터가 이동 방향을 바라보도록 facingAngle 조정
+        // 이동 방향 벡터를 캐릭터의 로컬 좌표계에서의 각도로 변환
+        const targetAngle = Math.atan2(
+            moveDir.dot(right.clone().negate()),
+            moveDir.dot(forward)
+        );
+
+        // facingAngle을 부드럽게 보간
+        let angleDiff = targetAngle - this.facingAngle;
+        // 각도 차이를 -PI ~ PI 범위로 정규화
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+        const turnRate = 8.0; // 회전 속도
+        this.facingAngle += angleDiff * Math.min(1, turnRate * deltaTime);
+
+        // 위치 업데이트
+        this.latitude = clampedLat;
+        this.longitude = newLon;
+        this.isWalking = true;
+        this.updatePositionOnEarth();
+    }
+
     // Shift: 달리기 모드
     setRunning(running) {
         this.isRunning = running;

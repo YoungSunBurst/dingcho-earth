@@ -773,8 +773,6 @@ function handleInput(deltaTime) {
         return;
     }
 
-    let isMoving = false;
-
     // Shift: 달리기 모드 (좌/우 Shift 모두 지원) + 모바일 달리기
     character.setRunning(keys.ShiftLeft || keys.ShiftRight || mobileInput.running);
 
@@ -784,28 +782,26 @@ function handleInput(deltaTime) {
         mobileInput.jump = false; // 점프는 한번만
     }
 
-    // W / ↑: 앞으로 이동 + 모바일 조이스틱
-    if (keys.KeyW || keys.ArrowUp || mobileInput.forward) {
-        character.moveForward(deltaTime);
-        isMoving = true;
-    }
-    // S / ↓: 뒤돌아보기 + 모바일 조이스틱
-    if (keys.KeyS || keys.ArrowDown || mobileInput.backward) {
-        character.turnAround(deltaTime);
-        isMoving = true;
-    }
-    // A / ←: 왼쪽으로 회전 + 모바일 조이스틱
-    if (keys.KeyA || keys.ArrowLeft || mobileInput.left) {
-        character.turnLeft(deltaTime);
-        isMoving = true;
-    }
-    // D / →: 오른쪽으로 회전 + 모바일 조이스틱
-    if (keys.KeyD || keys.ArrowRight || mobileInput.right) {
-        character.turnRight(deltaTime);
-        isMoving = true;
-    }
+    // 이동 방향 계산 (카메라 기준)
+    let dirX = 0; // 좌우: -1(왼쪽) ~ 1(오른쪽)
+    let dirY = 0; // 앞뒤: -1(앞) ~ 1(뒤)
 
-    if (!isMoving) {
+    // 키보드 입력
+    if (keys.KeyW || keys.ArrowUp) dirY -= 1;
+    if (keys.KeyS || keys.ArrowDown) dirY += 1;
+    if (keys.KeyA || keys.ArrowLeft) dirX -= 1;
+    if (keys.KeyD || keys.ArrowRight) dirX += 1;
+
+    // 모바일 조이스틱 입력
+    if (mobileInput.forward) dirY -= 1;
+    if (mobileInput.backward) dirY += 1;
+    if (mobileInput.left) dirX -= 1;
+    if (mobileInput.right) dirX += 1;
+
+    // 이동 실행
+    if (dirX !== 0 || dirY !== 0) {
+        character.moveInCameraDirection(dirX, dirY, camera, deltaTime);
+    } else {
         character.stopWalking();
     }
 }
@@ -848,19 +844,19 @@ function updateInfoText() {
     if (cameraMode === 'bird') {
         info.innerHTML = `
             <strong>Bird View</strong> (F: toggle)<br>
-            W: Forward | A/D: Turn | S: Turn around<br>
+            WASD/Arrows: Move (screen direction)<br>
             Shift: Run | Space: Jump | V: Front view
         `;
     } else if (cameraMode === 'front') {
         info.innerHTML = `
             <strong>Front View</strong> (V: toggle)<br>
-            W: Forward | A/D: Turn | S: Turn around<br>
+            WASD/Arrows: Move (screen direction)<br>
             Shift: Run | Space: Jump | F: Bird view
         `;
     } else {
         info.innerHTML = `
             Drag to rotate | Scroll to zoom<br>
-            W: Forward | A/D: Turn | S: Turn around<br>
+            WASD/Arrows: Move (screen direction)<br>
             Shift: Run | Space: Jump<br>
             F: Bird view | V: Front view
         `;

@@ -703,6 +703,25 @@ initCameraPosition();
 // 캐릭터 로드 완료
 updateLoading();
 
+// === MOBILE DETECTION ===
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints && navigator.maxTouchPoints > 2) ||
+    window.matchMedia("(pointer: coarse)").matches;
+
+// === MOBILE CONTROLS STATE ===
+const mobileInput = {
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
+    running: false,
+    jump: false
+};
+
+// 조이스틱 상태
+let joystickActive = false;
+let joystickTouchId = null;
+
 // === KEYBOARD CONTROLS ===
 // e.code 기반으로 키 상태 관리 (한글 입력 모드에서도 동작하도록)
 const keys = {
@@ -756,31 +775,32 @@ function handleInput(deltaTime) {
 
     let isMoving = false;
 
-    // Shift: 달리기 모드 (좌/우 Shift 모두 지원)
-    character.setRunning(keys.ShiftLeft || keys.ShiftRight);
+    // Shift: 달리기 모드 (좌/우 Shift 모두 지원) + 모바일 달리기
+    character.setRunning(keys.ShiftLeft || keys.ShiftRight || mobileInput.running);
 
-    // Space: 점프
-    if (keys.Space) {
+    // Space: 점프 + 모바일 점프
+    if (keys.Space || mobileInput.jump) {
         character.jump();
+        mobileInput.jump = false; // 점프는 한번만
     }
 
-    // W / ↑: 앞으로 이동
-    if (keys.KeyW || keys.ArrowUp) {
+    // W / ↑: 앞으로 이동 + 모바일 조이스틱
+    if (keys.KeyW || keys.ArrowUp || mobileInput.forward) {
         character.moveForward(deltaTime);
         isMoving = true;
     }
-    // S / ↓: 뒤돌아보기
-    if (keys.KeyS || keys.ArrowDown) {
+    // S / ↓: 뒤돌아보기 + 모바일 조이스틱
+    if (keys.KeyS || keys.ArrowDown || mobileInput.backward) {
         character.turnAround(deltaTime);
         isMoving = true;
     }
-    // A / ←: 왼쪽으로 회전
-    if (keys.KeyA || keys.ArrowLeft) {
+    // A / ←: 왼쪽으로 회전 + 모바일 조이스틱
+    if (keys.KeyA || keys.ArrowLeft || mobileInput.left) {
         character.turnLeft(deltaTime);
         isMoving = true;
     }
-    // D / →: 오른쪽으로 회전
-    if (keys.KeyD || keys.ArrowRight) {
+    // D / →: 오른쪽으로 회전 + 모바일 조이스틱
+    if (keys.KeyD || keys.ArrowRight || mobileInput.right) {
         character.turnRight(deltaTime);
         isMoving = true;
     }
@@ -1480,5 +1500,222 @@ initMultiplayer();
 // Start animation
 animate();
 
+// === MOBILE CONTROLS ===
+if (isMobile) {
+    console.log('Mobile device detected, initializing touch controls');
+
+    const joystickContainer = document.getElementById('joystick-container');
+    const joystickBase = document.getElementById('joystick-base');
+    const joystickStick = document.getElementById('joystick-stick');
+    const jumpButton = document.getElementById('jump-button');
+    const runButton = document.getElementById('run-button');
+
+    const joystickRadius = 70; // 조이스틱 베이스 반지름
+    const stickRadius = 30;    // 스틱 반지름
+    const maxDistance = joystickRadius - stickRadius; // 스틱이 움직일 수 있는 최대 거리
+
+    // 조이스틱 터치 핸들러
+    function handleJoystickStart(e) {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        joystickTouchId = touch.identifier;
+        joystickActive = true;
+        joystickStick.classList.add('active');
+        handleJoystickMove(e);
+    }
+
+    function handleJoystickMove(e) {
+        e.preventDefault();
+        if (!joystickActive) return;
+
+        let touch = null;
+        for (let i = 0; i < e.touches.length; i++) {
+            if (e.touches[i].identifier === joystickTouchId) {
+                touch = e.touches[i];
+                break;
+            }
+        }
+        if (!touch) return;
+
+        const rect = joystickBase.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+
+        let deltaX = touch.clientX - centerX;
+        let deltaY = touch.clientY - centerY;
+
+        // 거리 계산
+        const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        // 최대 거리 제한
+        if (distance > maxDistance) {
+            deltaX = (deltaX / distance) * maxDistance;
+            deltaY = (deltaY / distance) * maxDistance;
+        }
+
+        // 스틱 위치 업데이트
+        joystickStick.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+
+        // 입력 방향 계산 (데드존 적용)
+        const deadzone = 0.25;
+        const normalizedX = deltaX / maxDistance;
+        const normalizedY = deltaY / maxDistance;
+
+        // 방향 입력 업데이트
+        mobileInput.forward = normalizedY < -deadzone;
+        mobileInput.backward = normalizedY > deadzone;
+        mobileInput.left = normalizedX < -deadzone;
+        mobileInput.right = normalizedX > deadzone;
+    }
+
+    function handleJoystickEnd(e) {
+        e.preventDefault();
+
+        // 해당 터치가 종료되었는지 확인
+        let touchEnded = true;
+        for (let i = 0; i < e.touches.length; i++) {
+            if (e.touches[i].identifier === joystickTouchId) {
+                touchEnded = false;
+                break;
+            }
+        }
+
+        if (touchEnded) {
+            joystickActive = false;
+            joystickTouchId = null;
+            joystickStick.classList.remove('active');
+
+            // 스틱 위치 초기화
+            joystickStick.style.transform = 'translate(-50%, -50%)';
+
+            // 입력 초기화
+            mobileInput.forward = false;
+            mobileInput.backward = false;
+            mobileInput.left = false;
+            mobileInput.right = false;
+        }
+    }
+
+    // 조이스틱 이벤트 등록
+    joystickContainer.addEventListener('touchstart', handleJoystickStart, { passive: false });
+    joystickContainer.addEventListener('touchmove', handleJoystickMove, { passive: false });
+    joystickContainer.addEventListener('touchend', handleJoystickEnd, { passive: false });
+    joystickContainer.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
+
+    // 점프 버튼 터치 핸들러
+    jumpButton.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        jumpButton.classList.add('active');
+        mobileInput.jump = true;
+    }, { passive: false });
+
+    jumpButton.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        jumpButton.classList.remove('active');
+    }, { passive: false });
+
+    jumpButton.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        jumpButton.classList.remove('active');
+    }, { passive: false });
+
+    // 달리기 버튼 터치 핸들러 (토글 방식)
+    runButton.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        mobileInput.running = !mobileInput.running;
+        runButton.classList.toggle('active', mobileInput.running);
+    }, { passive: false });
+
+    // === TWO FINGER CAMERA CONTROLS ===
+    let lastTouchDistance = 0;
+    let lastTouchAngle = 0;
+    let lastTouchCenter = { x: 0, y: 0 };
+    let isTwoFingerTouch = false;
+
+    // 캔버스 터치 이벤트 (카메라 조작)
+    const canvas = renderer.domElement;
+
+    canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            isTwoFingerTouch = true;
+
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+
+            // 두 손가락 사이의 거리와 각도 계산
+            const dx = touch2.clientX - touch1.clientX;
+            const dy = touch2.clientY - touch1.clientY;
+            lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
+            lastTouchAngle = Math.atan2(dy, dx);
+            lastTouchCenter = {
+                x: (touch1.clientX + touch2.clientX) / 2,
+                y: (touch1.clientY + touch2.clientY) / 2
+            };
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && isTwoFingerTouch && cameraMode === 'free') {
+            e.preventDefault();
+
+            const touch1 = e.touches[0];
+            const touch2 = e.touches[1];
+
+            // 현재 두 손가락 상태 계산
+            const dx = touch2.clientX - touch1.clientX;
+            const dy = touch2.clientY - touch1.clientY;
+            const currentDistance = Math.sqrt(dx * dx + dy * dy);
+            const currentAngle = Math.atan2(dy, dx);
+            const currentCenter = {
+                x: (touch1.clientX + touch2.clientX) / 2,
+                y: (touch1.clientY + touch2.clientY) / 2
+            };
+
+            // 줌 (핀치)
+            const zoomDelta = (currentDistance - lastTouchDistance) * 0.01;
+            const currentZoom = camera.position.length();
+            const newZoom = Math.max(controls.minDistance, Math.min(controls.maxDistance, currentZoom - zoomDelta));
+            camera.position.normalize().multiplyScalar(newZoom);
+
+            // 회전 (드래그)
+            const rotateX = (currentCenter.x - lastTouchCenter.x) * 0.005;
+            const rotateY = (currentCenter.y - lastTouchCenter.y) * 0.005;
+
+            // OrbitControls의 spherical 좌표를 직접 조정
+            const spherical = new THREE.Spherical();
+            spherical.setFromVector3(camera.position);
+            spherical.theta -= rotateX;
+            spherical.phi += rotateY;
+            spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi));
+            camera.position.setFromSpherical(spherical);
+            camera.lookAt(0, 0, 0);
+
+            // 상태 업데이트
+            lastTouchDistance = currentDistance;
+            lastTouchAngle = currentAngle;
+            lastTouchCenter = currentCenter;
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) {
+            isTwoFingerTouch = false;
+        }
+    }, { passive: false });
+
+    canvas.addEventListener('touchcancel', () => {
+        isTwoFingerTouch = false;
+    }, { passive: false });
+
+    // 모바일에서 OrbitControls 비활성화 (two finger로만 조작)
+    controls.enabled = false;
+    controls.enableRotate = false;
+    controls.enableZoom = false;
+
+    // 모바일에서 기본 카메라 모드를 bird view로 설정
+    cameraMode = 'bird';
+}
+
 // Export for debugging
-export { scene, earth, camera, renderer, character, remotePlayers, multiplayerClient };
+export { scene, earth, camera, renderer, character, remotePlayers, multiplayerClient, isMobile };

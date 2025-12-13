@@ -189,6 +189,12 @@ function assignNewHost() {
 function startGame(duration) {
     if (gameState === 'playing') return;
 
+    // 게임 시작 시 페인트 데이터 초기화
+    paintData.clear();
+    playerPixelCounts.forEach((_, playerId) => {
+        playerPixelCounts.set(playerId, 0);
+    });
+
     gameState = 'playing';
     gameDuration = duration;
     gameStartTime = Date.now();
@@ -244,16 +250,26 @@ function endGame() {
 
     console.log('Game ended! Final rankings:', finalRankings);
 
+    // 1등이 다음 방장이 됨 (1등이 있고 아직 연결되어 있는 경우)
+    if (finalRankings.length > 0 && players.has(finalRankings[0].playerId)) {
+        const winnerId = finalRankings[0].playerId;
+        if (hostId !== winnerId) {
+            hostId = winnerId;
+            console.log(`New host (winner): ${hostId}`);
+
+            // 모든 클라이언트에게 새 방장 알림
+            broadcastAll({
+                type: 'hostChanged',
+                hostId: hostId
+            });
+        }
+    }
+
     // 모든 클라이언트에게 게임 종료 및 결과 알림
     broadcastAll({
         type: 'gameEnded',
         rankings: finalRankings
     });
-
-    // 3초 후 게임판 초기화 및 새 방장 선정
-    setTimeout(() => {
-        resetGame();
-    }, 3000);
 }
 
 // 게임 초기화

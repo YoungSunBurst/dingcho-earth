@@ -710,8 +710,10 @@ const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/
 
 // === MOBILE CONTROLS STATE ===
 const mobileInput = {
-    dirX: 0,  // -1 ~ 1 연속 값
-    dirY: 0,  // -1 ~ 1 연속 값
+    forward: false,
+    backward: false,
+    left: false,
+    right: false,
     running: false,
     jump: false
 };
@@ -771,6 +773,8 @@ function handleInput(deltaTime) {
         return;
     }
 
+    let isMoving = false;
+
     // Shift: 달리기 모드 (좌/우 Shift 모두 지원) + 모바일 달리기
     character.setRunning(keys.ShiftLeft || keys.ShiftRight || mobileInput.running);
 
@@ -780,26 +784,28 @@ function handleInput(deltaTime) {
         mobileInput.jump = false; // 점프는 한번만
     }
 
-    // 이동 방향 계산 (카메라 기준)
-    let dirX = 0; // 좌우: -1(왼쪽) ~ 1(오른쪽)
-    let dirY = 0; // 앞뒤: -1(앞) ~ 1(뒤)
-
-    // 키보드 입력
-    if (keys.KeyW || keys.ArrowUp) dirY -= 1;
-    if (keys.KeyS || keys.ArrowDown) dirY += 1;
-    if (keys.KeyA || keys.ArrowLeft) dirX -= 1;
-    if (keys.KeyD || keys.ArrowRight) dirX += 1;
-
-    // 모바일 조이스틱 입력 (연속 값 사용)
-    if (mobileInput.dirX !== 0 || mobileInput.dirY !== 0) {
-        dirX = mobileInput.dirX;
-        dirY = mobileInput.dirY;
+    // W / ↑: 앞으로 이동 + 모바일 조이스틱
+    if (keys.KeyW || keys.ArrowUp || mobileInput.forward) {
+        character.moveForward(deltaTime);
+        isMoving = true;
+    }
+    // S / ↓: 뒤돌아보기 + 모바일 조이스틱
+    if (keys.KeyS || keys.ArrowDown || mobileInput.backward) {
+        character.turnAround(deltaTime);
+        isMoving = true;
+    }
+    // A / ←: 왼쪽으로 회전 + 모바일 조이스틱
+    if (keys.KeyA || keys.ArrowLeft || mobileInput.left) {
+        character.turnLeft(deltaTime);
+        isMoving = true;
+    }
+    // D / →: 오른쪽으로 회전 + 모바일 조이스틱
+    if (keys.KeyD || keys.ArrowRight || mobileInput.right) {
+        character.turnRight(deltaTime);
+        isMoving = true;
     }
 
-    // 이동 실행
-    if (dirX !== 0 || dirY !== 0) {
-        character.moveInCameraDirection(dirX, dirY, camera, deltaTime);
-    } else {
+    if (!isMoving) {
         character.stopWalking();
     }
 }
@@ -842,19 +848,19 @@ function updateInfoText() {
     if (cameraMode === 'bird') {
         info.innerHTML = `
             <strong>Bird View</strong> (F: toggle)<br>
-            WASD/Arrows: Move (screen direction)<br>
+            W: Forward | A/D: Turn | S: Turn around<br>
             Shift: Run | Space: Jump | V: Front view
         `;
     } else if (cameraMode === 'front') {
         info.innerHTML = `
             <strong>Front View</strong> (V: toggle)<br>
-            WASD/Arrows: Move (screen direction)<br>
+            W: Forward | A/D: Turn | S: Turn around<br>
             Shift: Run | Space: Jump | F: Bird view
         `;
     } else {
         info.innerHTML = `
             Drag to rotate | Scroll to zoom<br>
-            WASD/Arrows: Move (screen direction)<br>
+            W: Forward | A/D: Turn | S: Turn around<br>
             Shift: Run | Space: Jump<br>
             F: Bird view | V: Front view
         `;
@@ -1550,24 +1556,16 @@ if (isMobile) {
         // 스틱 위치 업데이트
         joystickStick.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
 
-        // 입력 방향 계산 (연속 값)
+        // 입력 방향 계산 (데드존 적용)
+        const deadzone = 0.25;
         const normalizedX = deltaX / maxDistance;
         const normalizedY = deltaY / maxDistance;
 
-        // 데드존 적용 (중앙 근처에서는 입력 무시)
-        const deadzone = 0.15;
-        const magnitude = Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY);
-
-        if (magnitude < deadzone) {
-            mobileInput.dirX = 0;
-            mobileInput.dirY = 0;
-        } else {
-            // 데드존 이후의 값을 0~1로 재조정
-            const adjustedMagnitude = (magnitude - deadzone) / (1 - deadzone);
-            const angle = Math.atan2(normalizedY, normalizedX);
-            mobileInput.dirX = Math.cos(angle) * adjustedMagnitude;
-            mobileInput.dirY = Math.sin(angle) * adjustedMagnitude;
-        }
+        // 방향 입력 업데이트
+        mobileInput.forward = normalizedY < -deadzone;
+        mobileInput.backward = normalizedY > deadzone;
+        mobileInput.left = normalizedX < -deadzone;
+        mobileInput.right = normalizedX > deadzone;
     }
 
     function handleJoystickEnd(e) {
@@ -1591,8 +1589,10 @@ if (isMobile) {
             joystickStick.style.transform = 'translate(-50%, -50%)';
 
             // 입력 초기화
-            mobileInput.dirX = 0;
-            mobileInput.dirY = 0;
+            mobileInput.forward = false;
+            mobileInput.backward = false;
+            mobileInput.left = false;
+            mobileInput.right = false;
         }
     }
 

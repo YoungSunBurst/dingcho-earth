@@ -710,10 +710,8 @@ const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/
 
 // === MOBILE CONTROLS STATE ===
 const mobileInput = {
-    forward: false,
-    backward: false,
-    left: false,
-    right: false,
+    dirX: 0,  // -1 ~ 1 연속 값
+    dirY: 0,  // -1 ~ 1 연속 값
     running: false,
     jump: false
 };
@@ -792,11 +790,11 @@ function handleInput(deltaTime) {
     if (keys.KeyA || keys.ArrowLeft) dirX -= 1;
     if (keys.KeyD || keys.ArrowRight) dirX += 1;
 
-    // 모바일 조이스틱 입력
-    if (mobileInput.forward) dirY -= 1;
-    if (mobileInput.backward) dirY += 1;
-    if (mobileInput.left) dirX -= 1;
-    if (mobileInput.right) dirX += 1;
+    // 모바일 조이스틱 입력 (연속 값 사용)
+    if (mobileInput.dirX !== 0 || mobileInput.dirY !== 0) {
+        dirX = mobileInput.dirX;
+        dirY = mobileInput.dirY;
+    }
 
     // 이동 실행
     if (dirX !== 0 || dirY !== 0) {
@@ -1552,16 +1550,24 @@ if (isMobile) {
         // 스틱 위치 업데이트
         joystickStick.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
 
-        // 입력 방향 계산 (데드존 적용)
-        const deadzone = 0.25;
+        // 입력 방향 계산 (연속 값)
         const normalizedX = deltaX / maxDistance;
         const normalizedY = deltaY / maxDistance;
 
-        // 방향 입력 업데이트
-        mobileInput.forward = normalizedY < -deadzone;
-        mobileInput.backward = normalizedY > deadzone;
-        mobileInput.left = normalizedX < -deadzone;
-        mobileInput.right = normalizedX > deadzone;
+        // 데드존 적용 (중앙 근처에서는 입력 무시)
+        const deadzone = 0.15;
+        const magnitude = Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY);
+
+        if (magnitude < deadzone) {
+            mobileInput.dirX = 0;
+            mobileInput.dirY = 0;
+        } else {
+            // 데드존 이후의 값을 0~1로 재조정
+            const adjustedMagnitude = (magnitude - deadzone) / (1 - deadzone);
+            const angle = Math.atan2(normalizedY, normalizedX);
+            mobileInput.dirX = Math.cos(angle) * adjustedMagnitude;
+            mobileInput.dirY = Math.sin(angle) * adjustedMagnitude;
+        }
     }
 
     function handleJoystickEnd(e) {
@@ -1585,10 +1591,8 @@ if (isMobile) {
             joystickStick.style.transform = 'translate(-50%, -50%)';
 
             // 입력 초기화
-            mobileInput.forward = false;
-            mobileInput.backward = false;
-            mobileInput.left = false;
-            mobileInput.right = false;
+            mobileInput.dirX = 0;
+            mobileInput.dirY = 0;
         }
     }
 

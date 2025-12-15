@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { Character } from './Character.js';
-import { MultiplayerClient } from './multiplayer.js';
-import { ITEM_TYPES, ITEM_CONFIG, ItemManager } from './Item.js';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {Character} from './Character.js';
+import {MultiplayerClient} from './multiplayer.js';
+import {ITEM_CONFIG, ITEM_TYPES, ItemManager} from './Item.js';
 
 // === MULTIPLAYER ===
 // 서버 URL 설정 (로컬 개발 또는 프로덕션)
@@ -95,30 +95,37 @@ landMaskImage.onload = () => {
 landMaskImage.src = TEXTURES.earth;
 
 // RGB를 HSL로 변환하는 함수
-function rgbToHsl(r, g, b) {
+function rgbToHsb(r, g, b) {
     r /= 255;
     g /= 255;
     b /= 255;
 
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
-    const l = (max + min) / 2;
-
-    if (max === min) {
-        return { h: 0, s: 0, l: l * 100 };
-    }
-
     const d = max - min;
-    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
 
-    let h;
-    switch (max) {
-        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
-        case g: h = ((b - r) / d + 2) / 6; break;
-        case b: h = ((r - g) / d + 4) / 6; break;
+    let h = 0;
+    if (d !== 0) {
+        switch (max) {
+            case r:
+                h = ((g - b) / d + (g < b ? 6 : 0));
+                break;
+            case g:
+                h = ((b - r) / d + 2);
+                break;
+            case b:
+                h = ((r - g) / d + 4);
+                break;
+        }
+        h *= 60;
     }
 
-    return { h: h * 360, s: s * 100, l: l * 100 };
+    const s = max === 0 ? 0 : d / max;
+    return {
+        h: h,
+        s: s * 100,
+        b: max * 100
+    };
 }
 
 function isLandAtXY(x, y) {
@@ -133,11 +140,11 @@ function isLandAtXY(x, y) {
     const b = landMaskImageData.data[index + 2];
 
     // RGB를 HSL로 변환하여 채도 확인
-    const hsl = rgbToHsl(r, g, b);
+    const hsb = rgbToHsb(r, g, b);
 
     // 채도가 55% 이상이면 바다 (파란색 계열)
     // 따라서 채도가 55% 미만이면 육지
-    return hsl.s < 55;
+    return hsb.s < 60;
 }
 
 // 위도/경도로 육지인지 확인하는 함수
@@ -150,34 +157,6 @@ function isLandAt(lat, lon) {
     const x = Math.floor(((lon + 180) / 360) * landMaskCanvas.width);
     const y = Math.floor(((90 - lat) / 180) * landMaskCanvas.height);
     return isLandAtXY(x, y);
-}
-
-// === PAINT SYSTEM ===
-// HSL을 RGB로 변환
-function hslToRgb(h, s, l) {
-    let r, g, b;
-    if (s === 0) {
-        r = g = b = l;
-    } else {
-        const hue2rgb = (p, q, t) => {
-            if (t < 0) t += 1;
-            if (t > 1) t -= 1;
-            if (t < 1/6) return p + (q - p) * 6 * t;
-            if (t < 1/2) return q;
-            if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-            return p;
-        };
-        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        const p = 2 * l - q;
-        r = hue2rgb(p, q, h + 1/3);
-        g = hue2rgb(p, q, h);
-        b = hue2rgb(p, q, h - 1/3);
-    }
-    return {
-        r: Math.round(r * 255),
-        g: Math.round(g * 255),
-        b: Math.round(b * 255)
-    };
 }
 
 // 플레이어 색상 (서버에서 할당받음)
@@ -222,9 +201,9 @@ function calculateTotalLandPixels() {
             const r = landMaskImageData.data[index];
             const g = landMaskImageData.data[index + 1];
             const b = landMaskImageData.data[index + 2];
-            const hsl = rgbToHsl(r, g, b);
+            const hsl = rgbToHsb(r, g, b);
 
-            if (hsl.s < 65) {
+            if (hsl.s < 60) {
                 totalLandPixels++;
             }
         }

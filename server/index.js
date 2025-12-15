@@ -13,7 +13,7 @@
 const WebSocket = require('ws');
 const http = require('http');
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 9005;
 
 // Create HTTP server
 const server = http.createServer((req, res) => {

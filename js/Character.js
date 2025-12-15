@@ -41,6 +41,12 @@ export class Character {
         this.drowningTime = 0;
         this.drowningDuration = 1.0; // 1초간 빠지는 애니메이션
 
+        // 스턴 상태
+        this.isStunned = false;
+        this.stunTime = 0;
+        this.stunDuration = 5.0; // 기본 5초 (외부에서 설정 가능)
+        this.stunStars = []; // 별 오브젝트들
+
         // 육지 체크 함수 (외부에서 설정)
         this.landCheckFn = null;
 
@@ -230,6 +236,43 @@ export class Character {
                 child.receiveShadow = true;
             }
         });
+
+        // === 스턴 별 (머리 위에서 회전) ===
+        this.createStunStars();
+    }
+
+    // 스턴 별 생성
+    createStunStars() {
+        const starColor = 0xffdd00; // 노란색
+        const starCount = 3;
+        const starRadius = 0.04; // 별이 회전하는 반지름
+
+        // 별 그룹 (머리 위에 위치)
+        this.stunStarsGroup = new THREE.Group();
+        this.stunStarsGroup.position.y = 0.095; // 머리 위
+        this.stunStarsGroup.visible = false; // 초기에는 숨김
+        this.group.add(this.stunStarsGroup);
+
+        for (let i = 0; i < starCount; i++) {
+            // 별 모양 (4개 꼭지점)
+            const starGeom = new THREE.OctahedronGeometry(0.006, 0);
+            starGeom.scale(1, 0.6, 1);
+            const starMat = new THREE.MeshToonMaterial({
+                color: starColor,
+                emissive: starColor,
+                emissiveIntensity: 0.3
+            });
+            const star = new THREE.Mesh(starGeom, starMat);
+
+            // 원형으로 배치
+            const angle = (i / starCount) * Math.PI * 2;
+            star.position.x = Math.cos(angle) * starRadius;
+            star.position.z = Math.sin(angle) * starRadius;
+            star.position.y = 0;
+
+            this.stunStarsGroup.add(star);
+            this.stunStars.push(star);
+        }
     }
 
     // 걷기/달리기 애니메이션
@@ -439,6 +482,100 @@ export class Character {
         }
     }
 
+    // 스턴 시작
+    applyStun(duration = null) {
+        if (this.isDrowning) return; // 물에 빠진 동안에는 스턴 불가
+
+        this.isStunned = true;
+        this.stunTime = 0;
+        if (duration !== null) {
+            this.stunDuration = duration;
+        }
+
+        // 별 표시
+        if (this.stunStarsGroup) {
+            this.stunStarsGroup.visible = true;
+        }
+
+        console.log(`Character stunned for ${this.stunDuration} seconds`);
+    }
+
+    // 스턴 해제
+    removeStun() {
+        this.isStunned = false;
+        this.stunTime = 0;
+
+        // 별 숨기기
+        if (this.stunStarsGroup) {
+            this.stunStarsGroup.visible = false;
+        }
+
+        // 몸 원래 위치로
+        if (this.body) {
+            this.body.position.y = 0.025;
+            this.body.rotation.x = 0;
+        }
+        if (this.head) {
+            this.head.position.y = 0.058;
+        }
+        if (this.leftArm) {
+            this.leftArm.rotation.x = 0;
+            this.leftArm.rotation.z = 0;
+        }
+        if (this.rightArm) {
+            this.rightArm.rotation.x = 0;
+            this.rightArm.rotation.z = 0;
+        }
+    }
+
+    // 스턴 애니메이션 업데이트
+    updateStun(deltaTime) {
+        if (!this.isStunned) return;
+
+        this.stunTime += deltaTime;
+
+        // 주저앉는 포즈
+        const sitAmount = Math.min(this.stunTime * 3, 1); // 빠르게 주저앉기
+
+        // 몸통 아래로 + 약간 앞으로 기울임
+        if (this.body) {
+            this.body.position.y = 0.025 - sitAmount * 0.012;
+            this.body.rotation.x = sitAmount * 0.3;
+        }
+
+        // 머리도 살짝 아래로
+        if (this.head) {
+            this.head.position.y = 0.058 - sitAmount * 0.008;
+        }
+
+        // 팔 축 늘어뜨림
+        if (this.leftArm) {
+            this.leftArm.rotation.x = sitAmount * 0.5;
+            this.leftArm.rotation.z = sitAmount * 0.3;
+        }
+        if (this.rightArm) {
+            this.rightArm.rotation.x = sitAmount * 0.5;
+            this.rightArm.rotation.z = -sitAmount * 0.3;
+        }
+
+        // 별 회전 애니메이션
+        if (this.stunStarsGroup) {
+            this.stunStarsGroup.rotation.y += deltaTime * 5; // 초당 5라디안 회전
+
+            // 별들 위아래로 흔들림
+            this.stunStars.forEach((star, i) => {
+                const phase = (i / this.stunStars.length) * Math.PI * 2;
+                star.position.y = Math.sin(this.stunTime * 4 + phase) * 0.005;
+                star.rotation.y += deltaTime * 3; // 개별 회전
+            });
+        }
+
+        // 스턴 종료
+        if (this.stunTime >= this.stunDuration) {
+            this.removeStun();
+        }
+    }
+
     stopWalking() {
         this.isWalking = false;
     }
@@ -451,9 +588,13 @@ export class Character {
     }
 
     update(deltaTime) {
-        this.animateWalk(deltaTime);
+        // 스턴 중이 아닐 때만 걷기 애니메이션
+        if (!this.isStunned) {
+            this.animateWalk(deltaTime);
+        }
         this.updateJump(deltaTime);
         this.updateDrowning(deltaTime);
+        this.updateStun(deltaTime);
 
         // 리모트 플레이어는 보간 적용
         if (this.isRemote) {
@@ -488,6 +629,13 @@ export class Character {
         this.isRunning = state.isRunning || false;
         this.isJumping = state.isJumping || false;
         this.isDrowning = state.isDrowning || false;
+
+        // 스턴 상태 처리
+        if (state.isStunned && !this.isStunned) {
+            this.applyStun(state.stunDuration || this.stunDuration);
+        } else if (!state.isStunned && this.isStunned) {
+            this.removeStun();
+        }
     }
 
     // 캐릭터 색상 업데이트

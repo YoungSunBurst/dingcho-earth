@@ -18,6 +18,9 @@ let isHost = false;
 let gameState = 'waiting';  // 'waiting', 'playing'
 let selectedGameDuration = 180000;  // 기본 3분
 
+// === STUN CONFIG ===
+const STUN_DURATION = 5000; // 스턴 지속 시간 (ms) - 5초
+
 // Scene setup
 const scene = new THREE.Scene();
 const container = document.getElementById('canvas-container');
@@ -356,6 +359,9 @@ function tryFillEnclosedAreas(centerX, centerY) {
             if (result.isClosed && result.pixels.length >= 10 && result.pixels.length < 30000) {
                 console.log(`Filling enclosed area: ${result.pixels.length} pixels`);
 
+                // 채운 픽셀들을 Set으로 변환 (스턴 체크용)
+                const filledPixelsSet = new Set(result.pixels.map(p => `${p.x},${p.y}`));
+
                 // 캔버스에 그리기
                 paintCtx.fillStyle = playerColor.hsl;
                 result.pixels.forEach(p => {
@@ -373,6 +379,9 @@ function tryFillEnclosedAreas(centerX, centerY) {
                         pixels: result.pixels
                     });
                 }
+
+                // 영역 안에 있는 플레이어들에게 스턴 적용
+                checkAndStunPlayersInArea(filledPixelsSet);
             }
         }
     }
@@ -382,6 +391,50 @@ function tryFillEnclosedAreas(centerX, centerY) {
     }
 
     return totalFilled;
+}
+
+// 위도/경도를 텍스처 좌표로 변환
+function latLonToTextureXY(lat, lon) {
+    const x = Math.floor(((lon + 180) / 360) * PAINT_WIDTH);
+    const y = Math.floor(((90 - lat) / 180) * PAINT_HEIGHT);
+    return { x, y };
+}
+
+// 특정 픽셀 좌표가 영역 안에 있는지 확인
+function isPointInFilledArea(px, py, filledPixels) {
+    const key = `${px},${py}`;
+    return filledPixels.has(key);
+}
+
+// 영역 안에 있는 다른 플레이어들 감지 및 스턴 적용
+function checkAndStunPlayersInArea(filledPixels) {
+    if (!multiplayerClient || !multiplayerClient.isConnected) return;
+
+    const playersToStun = [];
+
+    // 다른 플레이어들 확인
+    remotePlayers.forEach((data, playerId) => {
+        const char = data.character;
+        if (char && !char.isStunned && !char.isDrowning) {
+            // 플레이어 위치를 텍스처 좌표로 변환
+            const pos = latLonToTextureXY(char.latitude, char.longitude);
+
+            // 영역 안에 있는지 확인
+            if (isPointInFilledArea(pos.x, pos.y, filledPixels)) {
+                playersToStun.push(playerId);
+            }
+        }
+    });
+
+    // 스턴 메시지 서버로 전송
+    if (playersToStun.length > 0) {
+        console.log(`Stunning players: ${playersToStun.join(', ')}`);
+        multiplayerClient.send({
+            type: 'stunPlayers',
+            targetPlayerIds: playersToStun,
+            duration: STUN_DURATION
+        });
+    }
 }
 
 function paintAt(lat, lon, color = null, sendToServer = true) {
@@ -769,6 +822,12 @@ function handleInput(deltaTime) {
 
     // 물에 빠진 동안에는 입력 무시
     if (character.isDrowning) {
+        character.stopWalking();
+        return;
+    }
+
+    // 스턴 중에는 입력 무시
+    if (character.isStunned) {
         character.stopWalking();
         return;
     }
@@ -1271,6 +1330,21 @@ function initMultiplayer() {
             }
         },
 
+        onStunned: (data) => {
+            // 내가 스턴 당했을 때
+            console.log(`I got stunned! Duration: ${data.duration}ms`);
+            character.applyStun(data.duration / 1000); // ms를 초로 변환
+        },
+
+        onPlayerStunned: (data) => {
+            // 다른 플레이어가 스턴 당했을 때
+            const remoteData = remotePlayers.get(data.playerId);
+            if (remoteData && remoteData.character) {
+                console.log(`Player ${data.playerId} got stunned!`);
+                remoteData.character.applyStun(data.duration / 1000);
+            }
+        },
+
         onLeaderboard: (rankings) => {
             updateLeaderboard(rankings);
         },
@@ -1367,7 +1441,9 @@ function sendMyPosition() {
                 isWalking: character.isWalking,
                 isRunning: character.isRunning,
                 isJumping: character.isJumping,
-                isDrowning: character.isDrowning
+                isDrowning: character.isDrowning,
+                isStunned: character.isStunned,
+                stunDuration: character.stunDuration
             }
         );
     }

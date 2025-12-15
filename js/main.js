@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Character } from './Character.js';
 import { MultiplayerClient } from './multiplayer.js';
+import { ITEM_TYPES, ITEM_CONFIG, ItemManager } from './Item.js';
 
 // === MULTIPLAYER ===
 // 서버 URL 설정 (로컬 개발 또는 프로덕션)
@@ -20,6 +21,15 @@ let selectedGameDuration = 180000;  // 기본 3분
 
 // === STUN CONFIG ===
 const STUN_DURATION = 5000; // 스턴 지속 시간 (ms) - 5초
+
+// === ITEM SYSTEM ===
+let itemManager = null;
+let currentItem = null; // Player's current item
+let isItemActive = false; // Is item currently being used
+let itemActiveTime = 0; // Time remaining for active item
+let batSwingTime = 0; // Bat swing animation time
+const ITEM_SPAWN_INTERVAL = 10000; // 10 seconds
+let lastItemSpawnTime = 0;
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -767,7 +777,7 @@ const mobileInput = {
     backward: false,
     left: false,
     right: false,
-    running: false,
+    useItem: false,
     jump: false
 };
 
@@ -834,8 +844,15 @@ function handleInput(deltaTime) {
 
     let isMoving = false;
 
-    // Shift: 달리기 모드 (좌/우 Shift 모두 지원) + 모바일 달리기
-    character.setRunning(keys.ShiftLeft || keys.ShiftRight || mobileInput.running);
+    // Sprint item: 달리기 모드 (스프린트 아이템 사용 중일 때만)
+    const isSprintActive = isItemActive && currentItem === ITEM_TYPES.SPRINT;
+    character.setRunning(isSprintActive);
+
+    // Shift: 아이템 사용 (누르는 순간 한 번)
+    if ((keys.ShiftLeft || keys.ShiftRight || mobileInput.useItem) && !isItemActive) {
+        useCurrentItem();
+        mobileInput.useItem = false;
+    }
 
     // Space: 점프 + 모바일 점프
     if (keys.Space || mobileInput.jump) {
@@ -968,6 +985,405 @@ function updateCameraFollow() {
 
 // Clock for deltaTime
 const clock = new THREE.Clock();
+
+// === ITEM FUNCTIONS ===
+
+// Initialize item manager
+function initItemManager() {
+    itemManager = new ItemManager({
+        scene: scene,
+        earthRadius: 1,
+        isLandAt: isLandAt
+    });
+}
+
+// Update item UI display
+function updateItemUI() {
+    const itemButton = document.getElementById('item-button');
+    const itemButtonText = document.getElementById('item-button-text');
+    const itemIcon = document.getElementById('item-icon');
+    const itemName = document.getElementById('item-name');
+
+    if (!currentItem) {
+        // No item
+        if (itemButton) {
+            itemButton.className = 'mobile-only';
+            itemButtonText.textContent = '-';
+        }
+        if (itemIcon) {
+            itemIcon.className = 'item-icon';
+            itemIcon.textContent = '-';
+        }
+        if (itemName) {
+            itemName.textContent = 'No Item';
+        }
+    } else {
+        const config = ITEM_CONFIG[currentItem];
+        if (itemButton) {
+            itemButton.className = `mobile-only has-item item-${currentItem}`;
+            itemButtonText.textContent = config.icon;
+        }
+        if (itemIcon) {
+            itemIcon.className = `item-icon ${currentItem}`;
+            itemIcon.textContent = config.icon;
+        }
+        if (itemName) {
+            itemName.textContent = config.name;
+        }
+    }
+}
+
+// Pick up item
+function pickupItem(itemType) {
+    if (currentItem) {
+        console.log('Already have an item!');
+        return false;
+    }
+
+    currentItem = itemType;
+    updateItemUI();
+    console.log(`Picked up: ${ITEM_CONFIG[itemType].name}`);
+    return true;
+}
+
+// Use current item
+function useCurrentItem() {
+    if (!currentItem || isItemActive) {
+        return;
+    }
+
+    console.log(`Using item: ${currentItem}`);
+
+    switch (currentItem) {
+        case ITEM_TYPES.GUN:
+            useGun();
+            break;
+        case ITEM_TYPES.MINE:
+            useMine();
+            break;
+        case ITEM_TYPES.BAT:
+            useBat();
+            break;
+        case ITEM_TYPES.SPRINT:
+            useSprint();
+            break;
+    }
+}
+
+// Use gun - shoot missile
+function useGun() {
+    if (!itemManager) return;
+
+    // 캐릭터의 진행 방향 계산 (W키 누를 때 이동하는 방향)
+    // 캐릭터의 앞쪽 방향 벡터 계산
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
+
+    // 현재 위치에서 앞쪽 방향으로 작은 이동 시뮬레이션
+    const currentPos = character.group.position.clone();
+    const testMoveAmount = 0.01; // 테스트용 작은 이동
+    const newPos = currentPos.clone().add(forward.clone().multiplyScalar(testMoveAmount));
+
+    // 새 위치를 구면 좌표로 변환
+    const r = newPos.length();
+    const testLat = Math.asin(newPos.y / r) * (180 / Math.PI);
+    const testLon = Math.atan2(newPos.x, newPos.z) * (180 / Math.PI);
+
+    // 방향 벡터 계산 (lat/lon 변화량)
+    const dirLatPerUnit = testLat - character.latitude;
+    const dirLonPerUnit = testLon - character.longitude;
+
+    // 방향 벡터 정규화
+    const dirMagnitude = Math.sqrt(dirLatPerUnit * dirLatPerUnit + dirLonPerUnit * dirLonPerUnit);
+    const normalizedDirLat = dirMagnitude > 0 ? dirLatPerUnit / dirMagnitude : 0;
+    const normalizedDirLon = dirMagnitude > 0 ? dirLonPerUnit / dirMagnitude : 0;
+
+    const missile = itemManager.createMissile({
+        ownerId: myPlayerId,
+        startLat: character.latitude,
+        startLon: character.longitude,
+        direction: character.facingAngle,
+        dirLatPerUnit: normalizedDirLat,
+        dirLonPerUnit: normalizedDirLon,
+        speed: ITEM_CONFIG[ITEM_TYPES.GUN].missileSpeed
+    });
+
+    // Send to server
+    if (multiplayerClient && multiplayerClient.isConnected) {
+        multiplayerClient.send({
+            type: 'itemUse',
+            itemType: ITEM_TYPES.GUN,
+            data: {
+                missileId: missile.id,
+                startLat: character.latitude,
+                startLon: character.longitude,
+                direction: character.facingAngle,
+                dirLatPerUnit: normalizedDirLat,
+                dirLonPerUnit: normalizedDirLon
+            }
+        });
+    }
+
+    console.log('Fired missile!');
+
+    // Consume item
+    currentItem = null;
+    updateItemUI();
+}
+
+// Use mine - place on ground
+function useMine() {
+    if (!itemManager) return;
+
+    const mine = itemManager.createMine({
+        ownerId: myPlayerId,
+        latitude: character.latitude,
+        longitude: character.longitude
+    });
+
+    // Send to server
+    if (multiplayerClient && multiplayerClient.isConnected) {
+        multiplayerClient.send({
+            type: 'itemUse',
+            itemType: ITEM_TYPES.MINE,
+            data: {
+                mineId: mine.id,
+                latitude: character.latitude,
+                longitude: character.longitude
+            }
+        });
+    }
+
+    console.log('Placed mine!');
+
+    // Consume item
+    currentItem = null;
+    updateItemUI();
+}
+
+// Use bat - single swing
+function useBat() {
+    batSwingTime = 0;
+
+    // 캐릭터에 몽둥이 활성화
+    character.activateBat();
+
+    // 즉시 주변 적 체크 (한 번 휘두르기)
+    checkBatHits();
+
+    // Send to server
+    if (multiplayerClient && multiplayerClient.isConnected) {
+        multiplayerClient.send({
+            type: 'itemUse',
+            itemType: ITEM_TYPES.BAT,
+            data: {
+                duration: ITEM_CONFIG[ITEM_TYPES.BAT].duration
+            }
+        });
+    }
+
+    console.log('Bat swing!');
+
+    // 아이템 소비 (한 번 사용)
+    currentItem = null;
+    updateItemUI();
+}
+
+// Use sprint - run for duration
+function useSprint() {
+    isItemActive = true;
+    itemActiveTime = ITEM_CONFIG[ITEM_TYPES.SPRINT].duration / 1000;
+
+    // 캐릭터에 스프린트 활성화 (무지개 색상)
+    character.activateSprint();
+
+    // Send to server
+    if (multiplayerClient && multiplayerClient.isConnected) {
+        multiplayerClient.send({
+            type: 'itemUse',
+            itemType: ITEM_TYPES.SPRINT,
+            data: {
+                duration: ITEM_CONFIG[ITEM_TYPES.SPRINT].duration
+            }
+        });
+    }
+
+    console.log('Sprint activated!');
+}
+
+// Update active items (bat, sprint)
+function updateActiveItem(deltaTime) {
+    // 몽둥이 애니메이션 처리 (character.hasBat으로 체크)
+    if (character.hasBat) {
+        batSwingTime += deltaTime;
+        // 애니메이션 종료 시 몽둥이 제거
+        if (batSwingTime >= ITEM_CONFIG[ITEM_TYPES.BAT].duration / 1000) {
+            character.removeBat();
+            batSwingTime = 0;
+        }
+    }
+
+    if (!isItemActive) return;
+
+    itemActiveTime -= deltaTime;
+
+    // Sprint collision check
+    if (currentItem === ITEM_TYPES.SPRINT) {
+        checkSprintCollisions();
+    }
+
+    // Item duration ended
+    if (itemActiveTime <= 0) {
+        console.log(`Item ${currentItem} expired`);
+
+        // 스프린트 아이템 종료 시 원래 색상으로 복원
+        if (currentItem === ITEM_TYPES.SPRINT) {
+            character.deactivateSprint();
+        }
+
+        isItemActive = false;
+        currentItem = null;
+        updateItemUI();
+    }
+}
+
+// Check bat hits against other players
+function checkBatHits() {
+    if (!itemManager) return;
+
+    const hitRadius = ITEM_CONFIG[ITEM_TYPES.BAT].hitRadius * 100; // Convert to degrees
+
+    remotePlayers.forEach((data, playerId) => {
+        const char = data.character;
+        if (char && !char.isStunned && !char.isDrowning) {
+            const latDiff = Math.abs(character.latitude - char.latitude);
+            const lonDiff = Math.abs(character.longitude - char.longitude);
+            const adjustedLonDiff = Math.min(lonDiff, 360 - lonDiff);
+            const distance = Math.sqrt(latDiff * latDiff + adjustedLonDiff * adjustedLonDiff);
+
+            if (distance < hitRadius) {
+                // Hit!
+                console.log(`Bat hit player ${playerId}!`);
+                if (multiplayerClient && multiplayerClient.isConnected) {
+                    multiplayerClient.send({
+                        type: 'stunPlayers',
+                        targetPlayerIds: [playerId],
+                        duration: ITEM_CONFIG[ITEM_TYPES.BAT].stunDuration
+                    });
+                }
+            }
+        }
+    });
+}
+
+// Check sprint collisions
+function checkSprintCollisions() {
+    if (!itemManager) return;
+
+    const collisionRadius = ITEM_CONFIG[ITEM_TYPES.SPRINT].collisionRadius * 100;
+
+    remotePlayers.forEach((data, playerId) => {
+        const char = data.character;
+        if (char && !char.isStunned && !char.isDrowning) {
+            const latDiff = Math.abs(character.latitude - char.latitude);
+            const lonDiff = Math.abs(character.longitude - char.longitude);
+            const adjustedLonDiff = Math.min(lonDiff, 360 - lonDiff);
+            const distance = Math.sqrt(latDiff * latDiff + adjustedLonDiff * adjustedLonDiff);
+
+            if (distance < collisionRadius) {
+                // Collision!
+                console.log(`Sprint collision with player ${playerId}!`);
+                if (multiplayerClient && multiplayerClient.isConnected) {
+                    multiplayerClient.send({
+                        type: 'stunPlayers',
+                        targetPlayerIds: [playerId],
+                        duration: ITEM_CONFIG[ITEM_TYPES.SPRINT].stunDuration
+                    });
+                }
+            }
+        }
+    });
+}
+
+// Check missile hits
+function updateMissiles(deltaTime) {
+    if (!itemManager) return;
+
+    itemManager.missiles.forEach((missile, id) => {
+        // Check against remote players
+        remotePlayers.forEach((data, playerId) => {
+            const char = data.character;
+            if (char && !char.isStunned && !char.isDrowning) {
+                if (missile.checkHit(char.latitude, char.longitude)) {
+                    console.log(`Missile hit player ${playerId}!`);
+
+                    // Only owner can claim the hit
+                    if (missile.ownerId === myPlayerId) {
+                        if (multiplayerClient && multiplayerClient.isConnected) {
+                            multiplayerClient.send({
+                                type: 'stunPlayers',
+                                targetPlayerIds: [playerId],
+                                duration: ITEM_CONFIG[ITEM_TYPES.GUN].stunDuration
+                            });
+                            multiplayerClient.send({
+                                type: 'missileHit',
+                                missileId: id
+                            });
+                        }
+                    }
+                    itemManager.removeMissile(id);
+                }
+            }
+        });
+    });
+}
+
+// Check mine triggers
+function updateMines() {
+    if (!itemManager) return;
+
+    // Check own character against all mines
+    itemManager.mines.forEach((mine, id) => {
+        // playerId 전달하여 설치자가 벗어났는지 확인
+        if (mine.checkTrigger(character.latitude, character.longitude, myPlayerId)) {
+            console.log(`Stepped on mine ${id}!`);
+            mine.explode();
+
+            // Stun myself
+            character.applyStun(ITEM_CONFIG[ITEM_TYPES.MINE].stunDuration / 1000);
+
+            // Notify server
+            if (multiplayerClient && multiplayerClient.isConnected) {
+                multiplayerClient.send({
+                    type: 'mineTriggered',
+                    mineId: id,
+                    triggeredBy: myPlayerId
+                });
+            }
+        }
+    });
+}
+
+// Check for item pickups
+function checkItemPickup() {
+    if (!itemManager || currentItem) return;
+
+    const itemBox = itemManager.checkPickup(character.latitude, character.longitude);
+    if (itemBox) {
+        const itemType = itemBox.itemType;
+        itemBox.collect();
+
+        // Notify server
+        if (multiplayerClient && multiplayerClient.isConnected) {
+            multiplayerClient.send({
+                type: 'itemPickup',
+                itemId: itemBox.id
+            });
+        }
+
+        pickupItem(itemType);
+        itemManager.removeItemBox(itemBox.id);
+    }
+}
 
 // === UI FUNCTIONS ===
 
@@ -1374,6 +1790,14 @@ function initMultiplayer() {
             // 페인트 캔버스 초기화
             clearPaintCanvas();
 
+            // 아이템 시스템 초기화
+            if (itemManager) {
+                itemManager.clear();
+            }
+            currentItem = null;
+            isItemActive = false;
+            updateItemUI();
+
             // 모든 모달 닫기
             hideAllModals();
 
@@ -1386,6 +1810,19 @@ function initMultiplayer() {
             console.log('Game ended!');
             gameState = 'waiting';
             updateGameState('waiting');
+
+            // 아이템 시스템 정리
+            if (itemManager) {
+                itemManager.clear();
+            }
+
+            // 몽둥이/스프린트 정리
+            character.removeBat();
+            character.deactivateSprint();
+
+            currentItem = null;
+            isItemActive = false;
+            updateItemUI();
 
             // 타이머 숨기기
             document.getElementById('game-timer').classList.remove('visible');
@@ -1419,6 +1856,73 @@ function initMultiplayer() {
 
         onTimeUpdate: (data) => {
             updateTimer(data.remaining);
+        },
+
+        // === ITEM CALLBACKS ===
+        onItemSpawn: (data) => {
+            // Server spawned items
+            if (itemManager && data.items) {
+                data.items.forEach(item => {
+                    itemManager.addItemBox(item);
+                });
+            }
+        },
+
+        onItemPickedUp: (data) => {
+            // Someone picked up an item
+            if (itemManager && data.itemId) {
+                itemManager.removeItemBox(data.itemId);
+            }
+        },
+
+        onItemUsed: (data) => {
+            // Someone used an item
+            if (!itemManager) return;
+
+            switch (data.itemType) {
+                case ITEM_TYPES.GUN:
+                    // Create missile from other player
+                    if (data.playerId !== myPlayerId && data.data) {
+                        itemManager.createMissile({
+                            id: data.data.missileId,
+                            ownerId: data.playerId,
+                            startLat: data.data.startLat,
+                            startLon: data.data.startLon,
+                            direction: data.data.direction,
+                            dirLatPerUnit: data.data.dirLatPerUnit || 0,
+                            dirLonPerUnit: data.data.dirLonPerUnit || 0
+                        });
+                    }
+                    break;
+                case ITEM_TYPES.MINE:
+                    // Create mine from other player
+                    if (data.playerId !== myPlayerId && data.data) {
+                        itemManager.createMine({
+                            id: data.data.mineId,
+                            ownerId: data.playerId,
+                            latitude: data.data.latitude,
+                            longitude: data.data.longitude
+                        });
+                    }
+                    break;
+            }
+        },
+
+        onMineTriggered: (data) => {
+            // Mine was triggered
+            if (itemManager && data.mineId) {
+                const mine = itemManager.mines.get(data.mineId);
+                if (mine) {
+                    mine.explode();
+                }
+            }
+        },
+
+        onMissileHit: (data) => {
+            // Missile hit something
+            if (itemManager && data.missileId) {
+                itemManager.removeMissile(data.missileId);
+            }
         },
 
         onError: (error) => {
@@ -1546,6 +2050,24 @@ function animate() {
         resetPaintState();
     }
 
+    // === ITEM SYSTEM UPDATES ===
+    if (itemManager && gameState === 'playing') {
+        // Update items
+        itemManager.update(deltaTime);
+
+        // Check for item pickup
+        checkItemPickup();
+
+        // Update active item (bat, sprint)
+        updateActiveItem(deltaTime);
+
+        // Update missiles
+        updateMissiles(deltaTime);
+
+        // Update mines
+        updateMines();
+    }
+
     // 내 위치를 서버에 전송
     sendMyPosition();
 
@@ -1576,6 +2098,9 @@ updateInfoText();
 // Initialize multiplayer
 initMultiplayer();
 
+// Initialize item system
+initItemManager();
+
 // Start animation
 animate();
 
@@ -1587,7 +2112,7 @@ if (isMobile) {
     const joystickBase = document.getElementById('joystick-base');
     const joystickStick = document.getElementById('joystick-stick');
     const jumpButton = document.getElementById('jump-button');
-    const runButton = document.getElementById('run-button');
+    const itemButton = document.getElementById('item-button');
 
     const joystickRadius = 70; // 조이스틱 베이스 반지름
     const stickRadius = 30;    // 스틱 반지름
@@ -1698,11 +2223,21 @@ if (isMobile) {
         jumpButton.classList.remove('active');
     }, { passive: false });
 
-    // 달리기 버튼 터치 핸들러 (토글 방식)
-    runButton.addEventListener('touchstart', (e) => {
+    // 아이템 사용 버튼 터치 핸들러
+    itemButton.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        mobileInput.running = !mobileInput.running;
-        runButton.classList.toggle('active', mobileInput.running);
+        itemButton.classList.add('active');
+        mobileInput.useItem = true;
+    }, { passive: false });
+
+    itemButton.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        itemButton.classList.remove('active');
+    }, { passive: false });
+
+    itemButton.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        itemButton.classList.remove('active');
     }, { passive: false });
 
     // === TWO FINGER CAMERA CONTROLS ===

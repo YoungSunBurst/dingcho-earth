@@ -47,6 +47,26 @@ export class Character {
         this.stunDuration = 5.0; // 기본 5초 (외부에서 설정 가능)
         this.stunStars = []; // 별 오브젝트들
 
+        // 몽둥이 상태
+        this.hasBat = false;
+        this.batSwingTime = 0;
+        this.bat = null;
+
+        // 스프린트 무지개 색상 상태
+        this.isSprintActive = false;
+        this.sprintTime = 0;
+        this.originalColor = null;
+        this.rainbowColors = [
+            'hsl(0, 80%, 60%)',    // 빨강
+            'hsl(30, 80%, 60%)',   // 주황
+            'hsl(60, 80%, 60%)',   // 노랑
+            'hsl(120, 80%, 60%)',  // 초록
+            'hsl(240, 80%, 60%)',  // 파랑
+            'hsl(275, 80%, 60%)',  // 남색
+            'hsl(300, 80%, 60%)'   // 보라
+        ];
+        this.currentRainbowIndex = 0;
+
         // 육지 체크 함수 (외부에서 설정)
         this.landCheckFn = null;
 
@@ -272,6 +292,134 @@ export class Character {
 
             this.stunStarsGroup.add(star);
             this.stunStars.push(star);
+        }
+    }
+
+    // 몽둥이 생성
+    createBat() {
+        if (this.bat) return;
+
+        const batGroup = new THREE.Group();
+
+        // 몽둥이 손잡이 (갈색)
+        const handleGeom = new THREE.CylinderGeometry(0.003, 0.003, 0.03, 8);
+        const handleMat = new THREE.MeshToonMaterial({ color: 0x8B4513 });
+        const handle = new THREE.Mesh(handleGeom, handleMat);
+        handle.rotation.z = Math.PI / 2;
+        batGroup.add(handle);
+
+        // 몽둥이 머리 (더 두꺼운 부분)
+        const headGeom = new THREE.CylinderGeometry(0.004, 0.006, 0.015, 8);
+        const headMat = new THREE.MeshToonMaterial({ color: 0x654321 });
+        const head = new THREE.Mesh(headGeom, headMat);
+        head.rotation.z = Math.PI / 2;
+        head.position.x = 0.022;
+        batGroup.add(head);
+
+        // 오른손에 위치
+        batGroup.position.set(0.035, 0.018, 0.01);
+        batGroup.rotation.y = Math.PI / 4;
+
+        this.bat = batGroup;
+        this.group.add(this.bat);
+    }
+
+    // 몽둥이 제거
+    removeBat() {
+        if (this.bat) {
+            this.group.remove(this.bat);
+            this.bat.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+            });
+            this.bat = null;
+        }
+        this.hasBat = false;
+        this.batSwingTime = 0;
+
+        // 팔 원래 위치로
+        if (this.rightArm) {
+            this.rightArm.rotation.x = 0;
+            this.rightArm.rotation.z = 0;
+        }
+    }
+
+    // 몽둥이 활성화
+    activateBat() {
+        this.hasBat = true;
+        this.batSwingTime = 0;
+        this.createBat();
+    }
+
+    // 몽둥이 휘두르기 애니메이션 (한 번 휘두르기)
+    animateBatSwing(deltaTime) {
+        if (!this.hasBat || !this.bat) return;
+
+        this.batSwingTime += deltaTime;
+
+        // 한 번 휘두르기 애니메이션 (0.5초)
+        const swingDuration = 0.5;
+        const progress = Math.min(this.batSwingTime / swingDuration, 1);
+
+        // 이징 함수 (빠르게 시작해서 끝에 감속)
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+
+        // 뒤로 들었다가 강하게 휘두르기
+        let swingAngle;
+        if (progress < 0.2) {
+            // 뒤로 들기 (0 ~ 0.2)
+            swingAngle = -(progress / 0.2) * 1.5; // -1.5 라디안까지 뒤로
+        } else {
+            // 앞으로 휘두르기 (0.2 ~ 1.0)
+            const swingProgress = (progress - 0.2) / 0.8;
+            swingAngle = -1.5 + swingProgress * 3.5; // -1.5에서 +2까지 휘두르기
+        }
+
+        // 오른팔 애니메이션
+        if (this.rightArm) {
+            this.rightArm.rotation.x = -0.5 - easeOut * 0.5;
+            this.rightArm.rotation.z = -0.3 - easeOut * 0.4;
+        }
+
+        // 몽둥이 휘두르기
+        this.bat.rotation.z = swingAngle;
+        this.bat.rotation.x = Math.sin(progress * Math.PI) * 0.4;
+
+        // 위아래 움직임
+        this.bat.position.y = 0.018 + Math.sin(progress * Math.PI) * 0.01;
+    }
+
+    // 스프린트 시작 (무지개 색상)
+    activateSprint() {
+        this.isSprintActive = true;
+        this.sprintTime = 0;
+        this.originalColor = this.playerColor;
+        this.currentRainbowIndex = 0;
+    }
+
+    // 스프린트 종료
+    deactivateSprint() {
+        this.isSprintActive = false;
+        this.sprintTime = 0;
+        // 원래 색상으로 복원
+        if (this.originalColor) {
+            this.updateColor(this.originalColor);
+        }
+    }
+
+    // 스프린트 무지개 색상 애니메이션
+    animateSprintRainbow(deltaTime) {
+        if (!this.isSprintActive) return;
+
+        this.sprintTime += deltaTime;
+
+        // 0.15초마다 색상 변경 (빠르게 변화)
+        const colorChangeInterval = 0.15;
+        const newIndex = Math.floor(this.sprintTime / colorChangeInterval) % this.rainbowColors.length;
+
+        if (newIndex !== this.currentRainbowIndex) {
+            this.currentRainbowIndex = newIndex;
+            this.updateColor(this.rainbowColors[this.currentRainbowIndex]);
         }
     }
 
@@ -595,6 +743,16 @@ export class Character {
         this.updateJump(deltaTime);
         this.updateDrowning(deltaTime);
         this.updateStun(deltaTime);
+
+        // 몽둥이 휘두르기 애니메이션
+        if (this.hasBat) {
+            this.animateBatSwing(deltaTime);
+        }
+
+        // 스프린트 무지개 색상 애니메이션
+        if (this.isSprintActive) {
+            this.animateSprintRainbow(deltaTime);
+        }
 
         // 리모트 플레이어는 보간 적용
         if (this.isRemote) {

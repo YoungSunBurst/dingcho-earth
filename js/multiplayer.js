@@ -45,6 +45,13 @@ export class MultiplayerClient {
         this.onStunned = options.onStunned || (() => {}); // 내가 스턴 당했을 때
         this.onPlayerStunned = options.onPlayerStunned || (() => {}); // 다른 플레이어가 스턴 당했을 때
 
+        // Item callbacks
+        this.onItemSpawn = options.onItemSpawn || (() => {}); // 아이템 스폰
+        this.onItemPickedUp = options.onItemPickedUp || (() => {}); // 아이템 픽업됨
+        this.onItemUsed = options.onItemUsed || (() => {}); // 아이템 사용됨
+        this.onMineTriggered = options.onMineTriggered || (() => {}); // 지뢰 발동
+        this.onMissileHit = options.onMissileHit || (() => {}); // 미사일 명중
+
         // Position update throttling
         this.lastPositionUpdate = 0;
         this.positionUpdateInterval = 50; // ms (20 updates per second)
@@ -255,6 +262,46 @@ export class MultiplayerClient {
                         playerId: message.playerId,
                         duration: message.duration,
                         stunnedBy: message.stunnedBy
+                    });
+                    break;
+
+                // === ITEM MESSAGES ===
+                case 'itemSpawn':
+                    // 아이템 스폰
+                    this.onItemSpawn({
+                        items: message.items
+                    });
+                    break;
+
+                case 'itemPickedUp':
+                    // 아이템 픽업됨
+                    this.onItemPickedUp({
+                        itemId: message.itemId,
+                        playerId: message.playerId
+                    });
+                    break;
+
+                case 'itemUsed':
+                    // 아이템 사용됨
+                    this.onItemUsed({
+                        playerId: message.playerId,
+                        itemType: message.itemType,
+                        data: message.data
+                    });
+                    break;
+
+                case 'mineTriggered':
+                    // 지뢰 발동
+                    this.onMineTriggered({
+                        mineId: message.mineId,
+                        triggeredBy: message.triggeredBy
+                    });
+                    break;
+
+                case 'missileHit':
+                    // 미사일 명중
+                    this.onMissileHit({
+                        missileId: message.missileId
                     });
                     break;
             }

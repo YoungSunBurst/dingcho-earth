@@ -58,6 +58,13 @@ let gameTimer = null;  // 게임 타이머
 let gameStartTime = null;  // 게임 시작 시간
 let gameEndTime = null;  // 게임 종료 시간
 
+// === ITEM SYSTEM ===
+const ITEM_TYPES = ['gun', 'mine', 'bat', 'sprint'];
+const ITEM_SPAWN_INTERVAL = 10000; // 10 seconds
+let itemSpawnTimer = null;
+const activeItems = new Map(); // id -> { itemType, latitude, longitude }
+const activeMines = new Map(); // mineId -> { ownerId, latitude, longitude }
+
 // 구별 가능한 색상 팔레트 (최대 20명)
 const COLOR_PALETTE = [
     'hsl(0, 85%, 60%)',     // 빨강
@@ -185,6 +192,87 @@ function assignNewHost() {
     return hostId;
 }
 
+// === ITEM FUNCTIONS ===
+
+// Generate unique item ID
+function generateItemId() {
+    return 'item_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Spawn items based on player count
+function spawnItems() {
+    if (gameState !== 'playing') return;
+
+    const playerCount = players.size;
+    const itemCount = Math.floor(playerCount / 2);
+
+    if (itemCount <= 0) return;
+
+    const spawnedItems = [];
+
+    for (let i = 0; i < itemCount; i++) {
+        const itemId = generateItemId();
+        const itemType = ITEM_TYPES[Math.floor(Math.random() * ITEM_TYPES.length)];
+
+        // Random land position (simplified - actual land check done on client)
+        const latitude = (Math.random() - 0.5) * 140; // -70 to 70
+        const longitude = (Math.random() - 0.5) * 360; // -180 to 180
+
+        const item = {
+            id: itemId,
+            itemType: itemType,
+            latitude: latitude,
+            longitude: longitude
+        };
+
+        activeItems.set(itemId, item);
+        spawnedItems.push(item);
+    }
+
+    if (spawnedItems.length > 0) {
+        console.log(`Spawned ${spawnedItems.length} items`);
+        broadcastAll({
+            type: 'itemSpawn',
+            items: spawnedItems
+        });
+    }
+}
+
+// Start item spawn timer
+function startItemSpawnTimer() {
+    if (itemSpawnTimer) {
+        clearInterval(itemSpawnTimer);
+    }
+
+    // Initial spawn after 3 seconds
+    setTimeout(() => {
+        if (gameState === 'playing') {
+            spawnItems();
+        }
+    }, 3000);
+
+    // Regular spawn every 10 seconds
+    itemSpawnTimer = setInterval(() => {
+        if (gameState === 'playing') {
+            spawnItems();
+        }
+    }, ITEM_SPAWN_INTERVAL);
+}
+
+// Stop item spawn timer
+function stopItemSpawnTimer() {
+    if (itemSpawnTimer) {
+        clearInterval(itemSpawnTimer);
+        itemSpawnTimer = null;
+    }
+}
+
+// Clear all items
+function clearItems() {
+    activeItems.clear();
+    activeMines.clear();
+}
+
 // 게임 시작
 function startGame(duration) {
     if (gameState === 'playing') return;
@@ -195,12 +283,18 @@ function startGame(duration) {
         playerPixelCounts.set(playerId, 0);
     });
 
+    // 아이템 초기화
+    clearItems();
+
     gameState = 'playing';
     gameDuration = duration;
     gameStartTime = Date.now();
     gameEndTime = gameStartTime + duration;
 
     console.log(`Game started! Duration: ${duration / 1000} seconds`);
+
+    // 아이템 스폰 타이머 시작
+    startItemSpawnTimer();
 
     // 모든 클라이언트에게 게임 시작 알림
     broadcastAll({
@@ -244,6 +338,10 @@ function endGame() {
         clearTimeout(gameTimer);
         gameTimer = null;
     }
+
+    // 아이템 스폰 타이머 중지
+    stopItemSpawnTimer();
+    clearItems();
 
     // 최종 순위 계산
     const finalRankings = getLeaderboard();
@@ -650,6 +748,80 @@ wss.on('connection', (ws) => {
 
                 case 'ping':
                     ws.send(JSON.stringify({ type: 'pong', timestamp: message.timestamp }));
+                    break;
+
+                // === ITEM MESSAGES ===
+                case 'itemPickup':
+                    // 아이템 픽업
+                    if (gameState !== 'playing') break;
+
+                    if (message.itemId && activeItems.has(message.itemId)) {
+                        activeItems.delete(message.itemId);
+                        console.log(`Player ${playerId} picked up item ${message.itemId}`);
+
+                        // 모든 클라이언트에게 알림
+                        broadcastAll({
+                            type: 'itemPickedUp',
+                            itemId: message.itemId,
+                            playerId: playerId
+                        });
+                    }
+                    break;
+
+                case 'itemUse':
+                    // 아이템 사용
+                    if (gameState !== 'playing') break;
+
+                    console.log(`Player ${playerId} used item: ${message.itemType}`);
+
+                    // 지뢰인 경우 활성 지뢰 목록에 추가
+                    if (message.itemType === 'mine' && message.data) {
+                        activeMines.set(message.data.mineId, {
+                            ownerId: playerId,
+                            latitude: message.data.latitude,
+                            longitude: message.data.longitude
+                        });
+                    }
+
+                    // 모든 클라이언트에게 알림
+                    broadcastAll({
+                        type: 'itemUsed',
+                        playerId: playerId,
+                        itemType: message.itemType,
+                        data: message.data
+                    });
+                    break;
+
+                case 'mineTriggered':
+                    // 지뢰 발동
+                    if (gameState !== 'playing') break;
+
+                    if (message.mineId && activeMines.has(message.mineId)) {
+                        const mine = activeMines.get(message.mineId);
+                        console.log(`Mine ${message.mineId} triggered by ${message.triggeredBy}`);
+
+                        activeMines.delete(message.mineId);
+
+                        // 모든 클라이언트에게 알림
+                        broadcastAll({
+                            type: 'mineTriggered',
+                            mineId: message.mineId,
+                            triggeredBy: message.triggeredBy
+                        });
+                    }
+                    break;
+
+                case 'missileHit':
+                    // 미사일 명중
+                    if (gameState !== 'playing') break;
+
+                    console.log(`Missile ${message.missileId} hit`);
+
+                    // 모든 클라이언트에게 알림
+                    broadcastAll({
+                        type: 'missileHit',
+                        missileId: message.missileId
+                    });
                     break;
             }
         } catch (error) {

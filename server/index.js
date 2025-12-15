@@ -459,6 +459,8 @@ wss.on('connection', (ws) => {
                         p.isRunning = message.isRunning || false;
                         p.isJumping = message.isJumping || false;
                         p.isDrowning = message.isDrowning || false;
+                        p.isStunned = message.isStunned || false;
+                        p.stunDuration = message.stunDuration || 5;
 
                         // position과 paint를 통합한 메시지 생성
                         const moveMessage = {
@@ -470,7 +472,9 @@ wss.on('connection', (ws) => {
                             isWalking: p.isWalking,
                             isRunning: p.isRunning,
                             isJumping: p.isJumping,
-                            isDrowning: p.isDrowning
+                            isDrowning: p.isDrowning,
+                            isStunned: p.isStunned,
+                            stunDuration: p.stunDuration
                         };
 
                         // paint 데이터가 있으면 함께 처리
@@ -608,6 +612,39 @@ wss.on('connection', (ws) => {
                             // Update leaderboard
                             broadcastLeaderboard();
                         }
+                    }
+                    break;
+
+                case 'stunPlayers':
+                    // 게임 중이 아니면 스턴 불가
+                    if (gameState !== 'playing') break;
+
+                    // 영역 채우기로 인한 스턴 처리
+                    const stunnerPlayer = players.get(playerId);
+                    if (stunnerPlayer && Array.isArray(message.targetPlayerIds)) {
+                        const duration = message.duration || 5000; // 기본 5초
+
+                        message.targetPlayerIds.forEach(targetId => {
+                            const targetPlayer = players.get(targetId);
+                            if (targetPlayer && targetPlayer.ws && targetPlayer.ws.readyState === WebSocket.OPEN) {
+                                console.log(`Player ${playerId} stunned player ${targetId} for ${duration}ms`);
+
+                                // 스턴 당한 플레이어에게 직접 알림
+                                targetPlayer.ws.send(JSON.stringify({
+                                    type: 'stunned',
+                                    duration: duration,
+                                    stunnedBy: playerId
+                                }));
+
+                                // 다른 플레이어들에게 누가 스턴 당했는지 알림
+                                broadcast({
+                                    type: 'playerStunned',
+                                    playerId: targetId,
+                                    duration: duration,
+                                    stunnedBy: playerId
+                                }, targetId); // 스턴 당한 플레이어는 제외 (이미 직접 알림 받음)
+                            }
+                        });
                     }
                     break;
 

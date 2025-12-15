@@ -41,6 +41,10 @@ export class MultiplayerClient {
         this.onGameReset = options.onGameReset || (() => {});
         this.onTimeUpdate = options.onTimeUpdate || (() => {});
 
+        // Stun callbacks
+        this.onStunned = options.onStunned || (() => {}); // 내가 스턴 당했을 때
+        this.onPlayerStunned = options.onPlayerStunned || (() => {}); // 다른 플레이어가 스턴 당했을 때
+
         // Position update throttling
         this.lastPositionUpdate = 0;
         this.positionUpdateInterval = 50; // ms (20 updates per second)
@@ -152,6 +156,8 @@ export class MultiplayerClient {
                         isRunning: message.isRunning,
                         isJumping: message.isJumping,
                         isDrowning: message.isDrowning,
+                        isStunned: message.isStunned,
+                        stunDuration: message.stunDuration,
                         // paint 데이터도 함께 전달
                         pixels: message.pixels,
                         color: message.color
@@ -232,6 +238,25 @@ export class MultiplayerClient {
                     const latency = Date.now() - message.timestamp;
                     console.log(`Latency: ${latency}ms`);
                     break;
+
+                case 'stunned':
+                    // 내가 스턴 당함
+                    console.log(`I got stunned! Duration: ${message.duration}ms`);
+                    this.onStunned({
+                        duration: message.duration,
+                        stunnedBy: message.stunnedBy
+                    });
+                    break;
+
+                case 'playerStunned':
+                    // 다른 플레이어가 스턴 당함
+                    console.log(`Player ${message.playerId} got stunned!`);
+                    this.onPlayerStunned({
+                        playerId: message.playerId,
+                        duration: message.duration,
+                        stunnedBy: message.stunnedBy
+                    });
+                    break;
             }
         } catch (error) {
             console.error('Error parsing message:', error);
@@ -277,7 +302,9 @@ export class MultiplayerClient {
             isWalking: state.isWalking || false,
             isRunning: state.isRunning || false,
             isJumping: state.isJumping || false,
-            isDrowning: state.isDrowning || false
+            isDrowning: state.isDrowning || false,
+            isStunned: state.isStunned || false,
+            stunDuration: state.stunDuration || 5
         };
 
         // 버퍼에 paint 데이터가 있으면 함께 전송

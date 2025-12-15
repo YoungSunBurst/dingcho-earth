@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "3D Earth with walking character using Three.js - Multiplayer Edition",
   "scripts": {
-    "dev": "npx serve .",
-    "start": "npx http-server -p 8080 -c-1",
+    "dev": "npx serve . -p 9007",
+    "start": "npx http-server -p 9007 -c-1",
     "server": "node server/index.js",
     "server:install": "cd server && npm install",
     "dev:full": "npm run server & npm run dev"

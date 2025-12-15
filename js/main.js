@@ -6,8 +6,8 @@ import { MultiplayerClient } from './multiplayer.js';
 // === MULTIPLAYER ===
 // 서버 URL 설정 (로컬 개발 또는 프로덕션)
 const WS_SERVER_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'ws://localhost:3001'
-    : `wss://${window.location.hostname}:3001`;
+? 'ws://localhost:3001'
+: `ws://${window.location.hostname}:9005`;
 
 // 리모트 플레이어 저장소 (playerId -> { character, name, color })
 const remotePlayers = new Map();
@@ -877,8 +877,11 @@ function updateCameraFollow() {
         // 버드뷰: 캐릭터 위에서 내려다보기
         const cameraOffset = charUp.clone().multiplyScalar(1.5);
         camera.position.copy(charPos).add(cameraOffset);
+
+        // 캐릭터가 바라보는 방향을 up 벡터로 사용 (화면 상단이 캐릭터가 바라보는 방향)
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
+        camera.up.copy(forward);
         camera.lookAt(charPos);
-        camera.up.copy(new THREE.Vector3(0, 1, 0));
     } else if (cameraMode === 'front') {
         // 정면뷰: 캐릭터 뒤에서 캐릭터가 바라보는 방향으로 바라보기
 

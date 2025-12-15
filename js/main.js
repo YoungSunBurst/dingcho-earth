@@ -1074,11 +1074,36 @@ function useCurrentItem() {
 function useGun() {
     if (!itemManager) return;
 
+    // 캐릭터의 진행 방향 계산 (W키 누를 때 이동하는 방향)
+    // 캐릭터의 앞쪽 방향 벡터 계산
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(character.group.quaternion);
+
+    // 현재 위치에서 앞쪽 방향으로 작은 이동 시뮬레이션
+    const currentPos = character.group.position.clone();
+    const testMoveAmount = 0.01; // 테스트용 작은 이동
+    const newPos = currentPos.clone().add(forward.clone().multiplyScalar(testMoveAmount));
+
+    // 새 위치를 구면 좌표로 변환
+    const r = newPos.length();
+    const testLat = Math.asin(newPos.y / r) * (180 / Math.PI);
+    const testLon = Math.atan2(newPos.x, newPos.z) * (180 / Math.PI);
+
+    // 방향 벡터 계산 (lat/lon 변화량)
+    const dirLatPerUnit = testLat - character.latitude;
+    const dirLonPerUnit = testLon - character.longitude;
+
+    // 방향 벡터 정규화
+    const dirMagnitude = Math.sqrt(dirLatPerUnit * dirLatPerUnit + dirLonPerUnit * dirLonPerUnit);
+    const normalizedDirLat = dirMagnitude > 0 ? dirLatPerUnit / dirMagnitude : 0;
+    const normalizedDirLon = dirMagnitude > 0 ? dirLonPerUnit / dirMagnitude : 0;
+
     const missile = itemManager.createMissile({
         ownerId: myPlayerId,
         startLat: character.latitude,
         startLon: character.longitude,
         direction: character.facingAngle,
+        dirLatPerUnit: normalizedDirLat,
+        dirLonPerUnit: normalizedDirLon,
         speed: ITEM_CONFIG[ITEM_TYPES.GUN].missileSpeed
     });
 
@@ -1091,7 +1116,9 @@ function useGun() {
                 missileId: missile.id,
                 startLat: character.latitude,
                 startLon: character.longitude,
-                direction: character.facingAngle
+                direction: character.facingAngle,
+                dirLatPerUnit: normalizedDirLat,
+                dirLonPerUnit: normalizedDirLon
             }
         });
     }
@@ -1133,14 +1160,15 @@ function useMine() {
     updateItemUI();
 }
 
-// Use bat - swing for 10 seconds
+// Use bat - single swing
 function useBat() {
-    isItemActive = true;
-    itemActiveTime = ITEM_CONFIG[ITEM_TYPES.BAT].duration / 1000;
     batSwingTime = 0;
 
     // 캐릭터에 몽둥이 활성화
     character.activateBat();
+
+    // 즉시 주변 적 체크 (한 번 휘두르기)
+    checkBatHits();
 
     // Send to server
     if (multiplayerClient && multiplayerClient.isConnected) {
@@ -1153,7 +1181,11 @@ function useBat() {
         });
     }
 
-    console.log('Bat activated for 10 seconds!');
+    console.log('Bat swing!');
+
+    // 아이템 소비 (한 번 사용)
+    currentItem = null;
+    updateItemUI();
 }
 
 // Use sprint - run for duration
@@ -1180,16 +1212,19 @@ function useSprint() {
 
 // Update active items (bat, sprint)
 function updateActiveItem(deltaTime) {
+    // 몽둥이 애니메이션 처리 (character.hasBat으로 체크)
+    if (character.hasBat) {
+        batSwingTime += deltaTime;
+        // 애니메이션 종료 시 몽둥이 제거
+        if (batSwingTime >= ITEM_CONFIG[ITEM_TYPES.BAT].duration / 1000) {
+            character.removeBat();
+            batSwingTime = 0;
+        }
+    }
+
     if (!isItemActive) return;
 
     itemActiveTime -= deltaTime;
-
-    // Bat swing check
-    if (currentItem === ITEM_TYPES.BAT) {
-        batSwingTime += deltaTime;
-        // Check hit against all players
-        checkBatHits();
-    }
 
     // Sprint collision check
     if (currentItem === ITEM_TYPES.SPRINT) {
@@ -1199,11 +1234,6 @@ function updateActiveItem(deltaTime) {
     // Item duration ended
     if (itemActiveTime <= 0) {
         console.log(`Item ${currentItem} expired`);
-
-        // 몽둥이 아이템 종료 시 제거
-        if (currentItem === ITEM_TYPES.BAT) {
-            character.removeBat();
-        }
 
         // 스프린트 아이템 종료 시 원래 색상으로 복원
         if (currentItem === ITEM_TYPES.SPRINT) {
@@ -1313,7 +1343,8 @@ function updateMines() {
 
     // Check own character against all mines
     itemManager.mines.forEach((mine, id) => {
-        if (mine.checkTrigger(character.latitude, character.longitude)) {
+        // playerId 전달하여 설치자가 벗어났는지 확인
+        if (mine.checkTrigger(character.latitude, character.longitude, myPlayerId)) {
             console.log(`Stepped on mine ${id}!`);
             mine.explode();
 
@@ -1857,7 +1888,9 @@ function initMultiplayer() {
                             ownerId: data.playerId,
                             startLat: data.data.startLat,
                             startLon: data.data.startLon,
-                            direction: data.data.direction
+                            direction: data.data.direction,
+                            dirLatPerUnit: data.data.dirLatPerUnit || 0,
+                            dirLonPerUnit: data.data.dirLonPerUnit || 0
                         });
                     }
                     break;

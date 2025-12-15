@@ -351,31 +351,42 @@ export class Character {
         this.createBat();
     }
 
-    // 몽둥이 휘두르기 애니메이션
+    // 몽둥이 휘두르기 애니메이션 (한 번 휘두르기)
     animateBatSwing(deltaTime) {
         if (!this.hasBat || !this.bat) return;
 
         this.batSwingTime += deltaTime;
 
-        // 휘두르기 사이클 (빠르게 휘두르기)
-        const swingSpeed = 8; // 초당 휘두르기 횟수
-        const swingPhase = (this.batSwingTime * swingSpeed * Math.PI * 2) % (Math.PI * 2);
+        // 한 번 휘두르기 애니메이션 (0.5초)
+        const swingDuration = 0.5;
+        const progress = Math.min(this.batSwingTime / swingDuration, 1);
 
-        // 몽둥이 회전 (좌우로 휘두르기)
-        const swingAngle = Math.sin(swingPhase) * 1.2; // 약 70도 각도로 휘두르기
+        // 이징 함수 (빠르게 시작해서 끝에 감속)
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+
+        // 뒤로 들었다가 강하게 휘두르기
+        let swingAngle;
+        if (progress < 0.2) {
+            // 뒤로 들기 (0 ~ 0.2)
+            swingAngle = -(progress / 0.2) * 1.5; // -1.5 라디안까지 뒤로
+        } else {
+            // 앞으로 휘두르기 (0.2 ~ 1.0)
+            const swingProgress = (progress - 0.2) / 0.8;
+            swingAngle = -1.5 + swingProgress * 3.5; // -1.5에서 +2까지 휘두르기
+        }
 
         // 오른팔 애니메이션
         if (this.rightArm) {
-            this.rightArm.rotation.x = -0.8 + Math.abs(Math.sin(swingPhase)) * 0.3;
-            this.rightArm.rotation.z = -0.5 - Math.abs(Math.sin(swingPhase)) * 0.3;
+            this.rightArm.rotation.x = -0.5 - easeOut * 0.5;
+            this.rightArm.rotation.z = -0.3 - easeOut * 0.4;
         }
 
-        // 몽둥이 자체 휘두르기
+        // 몽둥이 휘두르기
         this.bat.rotation.z = swingAngle;
-        this.bat.rotation.x = Math.sin(swingPhase * 2) * 0.3;
+        this.bat.rotation.x = Math.sin(progress * Math.PI) * 0.4;
 
-        // 살짝 위아래 움직임
-        this.bat.position.y = 0.018 + Math.abs(Math.sin(swingPhase)) * 0.005;
+        // 위아래 움직임
+        this.bat.position.y = 0.018 + Math.sin(progress * Math.PI) * 0.01;
     }
 
     // 스프린트 시작 (무지개 색상)

@@ -39,8 +39,8 @@ export const ITEM_CONFIG = {
         icon: '🏏',
         color: 0x9c27b0,
         stunDuration: 3000,
-        duration: 10000,
-        hitRadius: 0.05
+        duration: 500,  // 한 번 휘두르기 (0.5초)
+        hitRadius: 0.15  // 3배 확대 (0.05 * 3)
     },
     [ITEM_TYPES.SPRINT]: {
         name: 'Sprint',
@@ -197,7 +197,10 @@ export class Missile {
         this.ownerId = options.ownerId;
         this.startLat = options.startLat || 0;
         this.startLon = options.startLon || 0;
-        this.direction = options.direction || 0; // Facing angle
+        this.direction = options.direction || 0; // Facing angle (backup)
+        // 방향 벡터 (lat/lon 변화량)
+        this.dirLatPerUnit = options.dirLatPerUnit || 0;
+        this.dirLonPerUnit = options.dirLonPerUnit || 0;
         this.earthRadius = options.earthRadius || 1;
         this.speed = options.speed || 2.0;
 
@@ -280,10 +283,9 @@ export class Missile {
         // Move forward
         const moveAmount = this.speed * deltaTime;
 
-        // Calculate movement based on direction
-        const dirRad = this.direction;
-        const latChange = Math.cos(dirRad) * moveAmount * 10;
-        const lonChange = Math.sin(dirRad) * moveAmount * 10;
+        // 방향 벡터 사용 (캐릭터 진행 방향과 동일)
+        const latChange = this.dirLatPerUnit * moveAmount * 50;
+        const lonChange = this.dirLonPerUnit * moveAmount * 50;
 
         this.latitude += latChange;
         this.longitude += lonChange;
@@ -299,7 +301,7 @@ export class Missile {
 
         // Animate trail
         this.trail.children.forEach((particle, i) => {
-            particle.position.z = -0.005 - i * 0.003 + Math.sin(this.lifetime * 20 + i) * 0.001;
+            particle.position.z = -0.008 - i * 0.006 + Math.sin(this.lifetime * 20 + i) * 0.002;
         });
 
         // Check lifetime
@@ -343,6 +345,7 @@ export class Mine {
         this.triggerRadius = options.triggerRadius || 3; // degrees
 
         this.isActive = true;
+        this.isArmed = false; // 설치자가 벗어난 후에만 활성화
         this.isExploding = false;
         this.explosionTime = 0;
         this.explosionDuration = 0.5;
@@ -433,7 +436,7 @@ export class Mine {
     }
 
     // Check if position triggers the mine
-    checkTrigger(lat, lon) {
+    checkTrigger(lat, lon, playerId = null) {
         if (!this.isActive || this.isExploding) return false;
 
         const latDiff = Math.abs(this.latitude - lat);
@@ -441,7 +444,16 @@ export class Mine {
         const adjustedLonDiff = Math.min(lonDiff, 360 - lonDiff);
         const distance = Math.sqrt(latDiff * latDiff + adjustedLonDiff * adjustedLonDiff);
 
-        return distance < this.triggerRadius;
+        const isInRange = distance < this.triggerRadius;
+
+        // 설치자가 범위를 벗어나면 활성화
+        if (!this.isArmed && playerId === this.ownerId && !isInRange) {
+            this.isArmed = true;
+            console.log(`Mine ${this.id} is now armed`);
+        }
+
+        // 활성화된 상태에서만 발동
+        return this.isArmed && isInRange;
     }
 
     explode() {

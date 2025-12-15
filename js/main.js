@@ -1139,6 +1139,9 @@ function useBat() {
     itemActiveTime = ITEM_CONFIG[ITEM_TYPES.BAT].duration / 1000;
     batSwingTime = 0;
 
+    // 캐릭터에 몽둥이 활성화
+    character.activateBat();
+
     // Send to server
     if (multiplayerClient && multiplayerClient.isConnected) {
         multiplayerClient.send({
@@ -1157,6 +1160,9 @@ function useBat() {
 function useSprint() {
     isItemActive = true;
     itemActiveTime = ITEM_CONFIG[ITEM_TYPES.SPRINT].duration / 1000;
+
+    // 캐릭터에 스프린트 활성화 (무지개 색상)
+    character.activateSprint();
 
     // Send to server
     if (multiplayerClient && multiplayerClient.isConnected) {
@@ -1193,6 +1199,17 @@ function updateActiveItem(deltaTime) {
     // Item duration ended
     if (itemActiveTime <= 0) {
         console.log(`Item ${currentItem} expired`);
+
+        // 몽둥이 아이템 종료 시 제거
+        if (currentItem === ITEM_TYPES.BAT) {
+            character.removeBat();
+        }
+
+        // 스프린트 아이템 종료 시 원래 색상으로 복원
+        if (currentItem === ITEM_TYPES.SPRINT) {
+            character.deactivateSprint();
+        }
+
         isItemActive = false;
         currentItem = null;
         updateItemUI();
@@ -1767,6 +1784,11 @@ function initMultiplayer() {
             if (itemManager) {
                 itemManager.clear();
             }
+
+            // 몽둥이/스프린트 정리
+            character.removeBat();
+            character.deactivateSprint();
+
             currentItem = null;
             isItemActive = false;
             updateItemUI();

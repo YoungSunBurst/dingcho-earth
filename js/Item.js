@@ -25,7 +25,7 @@ export const ITEM_CONFIG = {
         icon: '🔫',
         color: 0xf44336,
         stunDuration: 5000,
-        missileSpeed: 2.0
+        missileSpeed: 4.0  // 2x faster
     },
     [ITEM_TYPES.MINE]: {
         name: 'Mine',
@@ -213,36 +213,37 @@ export class Missile {
     }
 
     createVisual() {
-        // Missile body
-        const bodyGeom = new THREE.CylinderGeometry(0.003, 0.005, 0.02, 8);
+        // Missile body - 구 형태로 변경
+        const bodyGeom = new THREE.SphereGeometry(0.008, 16, 16);
         const bodyMat = new THREE.MeshToonMaterial({
             color: 0xff5722,
             emissive: 0xff5722,
-            emissiveIntensity: 0.3
+            emissiveIntensity: 0.4
         });
         this.body = new THREE.Mesh(bodyGeom, bodyMat);
-        this.body.rotation.x = Math.PI / 2;
         this.group.add(this.body);
 
-        // Tip
-        const tipGeom = new THREE.ConeGeometry(0.003, 0.008, 8);
-        const tipMat = new THREE.MeshToonMaterial({ color: 0xffeb3b });
-        const tip = new THREE.Mesh(tipGeom, tipMat);
-        tip.rotation.x = -Math.PI / 2;
-        tip.position.z = 0.014;
-        this.group.add(tip);
+        // 내부 코어 (더 밝게)
+        const coreGeom = new THREE.SphereGeometry(0.004, 12, 12);
+        const coreMat = new THREE.MeshBasicMaterial({
+            color: 0xffeb3b,
+            transparent: true,
+            opacity: 0.9
+        });
+        const core = new THREE.Mesh(coreGeom, coreMat);
+        this.body.add(core);
 
-        // Trail particles
+        // Trail particles (더 많이, 더 길게)
         this.trail = new THREE.Group();
-        for (let i = 0; i < 5; i++) {
-            const particleGeom = new THREE.SphereGeometry(0.002 - i * 0.0003, 4, 4);
+        for (let i = 0; i < 8; i++) {
+            const particleGeom = new THREE.SphereGeometry(0.005 - i * 0.0005, 8, 8);
             const particleMat = new THREE.MeshBasicMaterial({
-                color: new THREE.Color().setHSL(0.1 - i * 0.02, 1, 0.5),
+                color: new THREE.Color().setHSL(0.08 - i * 0.01, 1, 0.6 - i * 0.05),
                 transparent: true,
-                opacity: 0.8 - i * 0.15
+                opacity: 0.9 - i * 0.1
             });
             const particle = new THREE.Mesh(particleGeom, particleMat);
-            particle.position.z = -0.005 - i * 0.003;
+            particle.position.z = -0.008 - i * 0.006;
             this.trail.add(particle);
         }
         this.group.add(this.trail);
@@ -526,6 +527,12 @@ export class ItemManager {
 
     // Add item box from server
     addItemBox(data) {
+        // 육지 체크 - 바다에 있으면 추가하지 않음
+        if (!this.isLandAt(data.latitude, data.longitude)) {
+            console.log(`Item ${data.id} is on water, skipping`);
+            return null;
+        }
+
         const itemBox = new ItemBox({
             id: data.id,
             itemType: data.itemType,

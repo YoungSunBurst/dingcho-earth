@@ -345,7 +345,6 @@ export class Mine {
         this.triggerRadius = options.triggerRadius || 3; // degrees
 
         this.isActive = true;
-        this.isArmed = false; // 설치자가 벗어난 후에만 활성화
         this.isExploding = false;
         this.explosionTime = 0;
         this.explosionDuration = 0.5;
@@ -437,23 +436,15 @@ export class Mine {
 
     // Check if position triggers the mine
     checkTrigger(lat, lon, playerId = null) {
-        if (!this.isActive || this.isExploding) return false;
+        if (!this.isActive || this.isExploding || playerId === this.ownerId) return false;
 
         const latDiff = Math.abs(this.latitude - lat);
         const lonDiff = Math.abs(this.longitude - lon);
         const adjustedLonDiff = Math.min(lonDiff, 360 - lonDiff);
         const distance = Math.sqrt(latDiff * latDiff + adjustedLonDiff * adjustedLonDiff);
 
-        const isInRange = distance < this.triggerRadius;
-
-        // 설치자가 범위를 벗어나면 활성화
-        if (!this.isArmed && playerId === this.ownerId && !isInRange) {
-            this.isArmed = true;
-            console.log(`Mine ${this.id} is now armed`);
-        }
-
         // 활성화된 상태에서만 발동
-        return this.isArmed && isInRange;
+        return distance < this.triggerRadius;
     }
 
     explode() {

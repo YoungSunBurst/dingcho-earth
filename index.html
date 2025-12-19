@@ -499,13 +499,13 @@
 
         /* === MOBILE CONTROLS === */
         .mobile-only {
-            display: none;
+            display: none !important;
         }
 
         /* 모바일에서만 표시 */
         @media (pointer: coarse), (max-width: 768px) {
             .mobile-only {
-                display: block;
+                display: flex !important;
             }
 
             .desktop-only {

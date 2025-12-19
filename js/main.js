@@ -866,7 +866,7 @@ function handleInput(deltaTime) {
 }
 
 // === CAMERA MODES ===
-let cameraMode = 'free'; // 'free', 'bird', 'front'
+let cameraMode = 'bird'; // 'free', 'bird', 'front'
 const followDistance = 0.3;
 const followHeight = 0.15;
 
@@ -904,19 +904,19 @@ function updateInfoText() {
         info.innerHTML = `
             <strong>Bird View</strong> (F: toggle)<br>
             W: Forward | A/D: Turn | S: Turn around<br>
-            Shift: Run | Space: Jump | V: Front view
+            Shift: use item  | Space: Jump | V: Front view
         `;
     } else if (cameraMode === 'front') {
         info.innerHTML = `
             <strong>Front View</strong> (V: toggle)<br>
             W: Forward | A/D: Turn | S: Turn around<br>
-            Shift: Run | Space: Jump | F: Bird view
+            Shift: use item | Space: Jump | F: Bird view
         `;
     } else {
         info.innerHTML = `
             Drag to rotate | Scroll to zoom<br>
             W: Forward | A/D: Turn | S: Turn around<br>
-            Shift: Run | Space: Jump<br>
+            Shift: use item | Space: Jump<br>
             F: Bird view | V: Front view
         `;
     }
@@ -1884,6 +1884,36 @@ function initMultiplayer() {
                         });
                     }
                     break;
+                case ITEM_TYPES.BAT:
+                    // Show bat on other player
+                    if (data.playerId !== myPlayerId && data.data) {
+                        const remoteData = remotePlayers.get(data.playerId);
+                        if (remoteData && remoteData.character) {
+                            remoteData.character.activateBat();
+                            // Remove bat after duration
+                            setTimeout(() => {
+                                if (remoteData.character) {
+                                    remoteData.character.removeBat();
+                                }
+                            }, data.data.duration || ITEM_CONFIG[ITEM_TYPES.BAT].duration);
+                        }
+                    }
+                    break;
+                case ITEM_TYPES.SPRINT:
+                    // Activate sprint rainbow on other player
+                    if (data.playerId !== myPlayerId && data.data) {
+                        const remoteData = remotePlayers.get(data.playerId);
+                        if (remoteData && remoteData.character) {
+                            remoteData.character.activateSprint();
+                            // Deactivate after duration
+                            setTimeout(() => {
+                                if (remoteData.character) {
+                                    remoteData.character.deactivateSprint();
+                                }
+                            }, data.data.duration || ITEM_CONFIG[ITEM_TYPES.SPRINT].duration);
+                        }
+                    }
+                    break;
             }
         },
 
@@ -2073,6 +2103,9 @@ window.addEventListener('resize', () => {
 
 // Initialize info text
 updateInfoText();
+
+// 기본 카메라 모드가 bird이므로 OrbitControls 비활성화
+controls.enabled = false;
 
 // Initialize multiplayer
 initMultiplayer();
